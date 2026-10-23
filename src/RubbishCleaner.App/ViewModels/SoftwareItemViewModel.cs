@@ -1,3 +1,4 @@
+using System.Windows.Media;
 using RubbishCleaner.App.Infrastructure;
 using RubbishCleaner.Core.Models;
 
@@ -12,13 +13,20 @@ public sealed class SoftwareItemViewModel : ObservableObject
     {
         Profile = profile;
         Evidences = profile.Evidences.Select(e => new EvidenceItemViewModel(e)).ToList();
+
+        // 只展示真正计分的规则（"不适用"的项不算命中，否则会误导用户）
         ScoreItems = profile.Score.Items
-            .Where(i => i.Hit)
+            .Where(i => i.Hit && !i.NotApplicable)
             .Select(i => $"+{i.Weight} {i.Description}")
             .ToList();
+
+        Icon = IconCache.Get(profile.ExecutablePath);
     }
 
     public SoftwareProfile Profile { get; }
+
+    /// <summary>程序图标；取不到时为 null（UI 显示占位空白）。</summary>
+    public ImageSource? Icon { get; }
 
     public string DisplayName => Profile.DisplayName;
 
@@ -36,9 +44,16 @@ public sealed class SoftwareItemViewModel : ObservableObject
 
     public string StartupSummary => Profile.StartupSummary;
 
+    /// <summary>排序用的启动方式键：取第一个启动项的类别名，保证稳定。</summary>
+    public string StartupSortKey => Profile.StartupEntries.Count == 0
+        ? string.Empty
+        : Profile.StartupEntries[0].Source.ToDisplayName();
+
     public string Publisher => Profile.Publisher ?? "（无签名）";
 
-    public string TrustText => Profile.Trust switch
+    public TrustVerdict Trust => Profile.Trust;
+
+    public string TrustText => Trust switch
     {
         TrustVerdict.Safe => "白名单",
         TrustVerdict.Malicious => "黑名单",

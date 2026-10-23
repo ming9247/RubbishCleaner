@@ -2,31 +2,62 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="clr-namespace:RubbishCleaner.App.ViewModels"
+        xmlns:infra="clr-namespace:RubbishCleaner.App.Infrastructure"
         Title="RubbishCleaner — 开机自启动检测"
         Height="760" Width="1180"
-        MinHeight="560" MinWidth="900"
+        MinHeight="480" MinWidth="760"
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource BackgroundBrush}"
+        Icon="/app.ico"
         FontFamily="Microsoft YaHei UI, Segoe UI">
 
   <Window.Resources>
-    <!-- 一行软件：风险色块 + 名称 + 启动方式 + 发行商 + 分数，点击展开证据 -->
+    <!-- 可点击的排序列头：显示列名 + 当前排序方向箭头 -->
+    <Style x:Key="HeaderButton" TargetType="Button">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Margin" Value="0" />
+      <Setter Property="HorizontalContentAlignment" Value="Left" />
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontFamily" Value="Microsoft YaHei UI, Segoe UI" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Bd" Background="Transparent" Padding="0,2">
+              <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center" />
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="#EEF2FF" />
+                <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- 一行软件：图标 + 风险色块 + 名称 + 启动方式 + 发行商 + 分数，点击展开证据 -->
     <DataTemplate x:Key="SoftwareRowTemplate" DataType="{x:Type vm:SoftwareItemViewModel}">
       <Border x:Name="RowRoot"
               Background="Transparent"
               BorderBrush="{StaticResource BorderBrush}"
               BorderThickness="0,0,0,1"
-              Padding="10,8">
+              Padding="10,7">
         <StackPanel>
           <Grid>
             <Grid.ColumnDefinitions>
               <ColumnDefinition Width="72" />
-              <ColumnDefinition Width="*" MinWidth="180" />
-              <ColumnDefinition Width="190" />
+              <ColumnDefinition Width="26" />
+              <ColumnDefinition Width="*" MinWidth="150" />
               <ColumnDefinition Width="150" />
-              <ColumnDefinition Width="88" />
-              <ColumnDefinition Width="64" />
-              <ColumnDefinition Width="34" />
+              <ColumnDefinition Width="190" />
+              <ColumnDefinition Width="100" />
+              <ColumnDefinition Width="62" />
+              <ColumnDefinition Width="28" />
             </Grid.ColumnDefinitions>
 
             <!-- 风险等级色块 -->
@@ -36,32 +67,47 @@
               <TextBlock Text="{Binding LevelText}" Foreground="White" FontSize="12" FontWeight="SemiBold" />
             </Border>
 
-            <StackPanel Grid.Column="1" Margin="8,0,8,0" VerticalAlignment="Center">
+            <!-- 程序图标 -->
+            <Image Grid.Column="1" Source="{Binding Icon}" Width="16" Height="16"
+                   VerticalAlignment="Center" Margin="2,0,0,0"
+                   RenderOptions.BitmapScalingMode="HighQuality" />
+
+            <StackPanel Grid.Column="2" Margin="6,0,8,0" VerticalAlignment="Center">
               <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
               <TextBlock Text="{Binding ExecutablePath}" Style="{StaticResource SecondaryText}"
                          TextTrimming="CharacterEllipsis" ToolTip="{Binding ExecutablePath}" />
             </StackPanel>
 
-            <TextBlock Grid.Column="2" Text="{Binding StartupSummary}" VerticalAlignment="Center"
+            <TextBlock Grid.Column="3" Text="{Binding StartupSummary}" VerticalAlignment="Center"
                        TextTrimming="CharacterEllipsis" ToolTip="{Binding StartupSummary}" />
 
-            <StackPanel Grid.Column="3" VerticalAlignment="Center">
-              <TextBlock Text="{Binding Publisher}" TextTrimming="CharacterEllipsis" />
-              <TextBlock Text="{Binding RunningText}" Style="{StaticResource SecondaryText}" />
-            </StackPanel>
+            <!--
+              用 Grid 而不是 StackPanel：StackPanel 不会按列宽裁剪子元素，
+              长文本会溢出到相邻列（"发行商压到分数上"，实测踩过）。
+              Grid 会约束子元素宽度，配合 TextTrimming 才能真正省略。
+            -->
+            <Grid Grid.Column="4" VerticalAlignment="Center" Margin="0,0,8,0">
+              <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+              </Grid.RowDefinitions>
+              <TextBlock Grid.Row="0" Text="{Binding Publisher}" TextTrimming="CharacterEllipsis"
+                         ToolTip="{Binding Publisher}" />
+              <TextBlock Grid.Row="1" Text="{Binding RunningText}" Style="{StaticResource SecondaryText}" />
+            </Grid>
 
-            <StackPanel Grid.Column="4" VerticalAlignment="Center">
+            <StackPanel Grid.Column="5" VerticalAlignment="Center">
               <TextBlock Text="{Binding ScoreText}" FontWeight="SemiBold" FontSize="14" />
               <TextBlock Text="{Binding HitSummary}" Style="{StaticResource SecondaryText}" />
             </StackPanel>
 
-            <Border Grid.Column="5" Style="{StaticResource RiskPill}" Background="#EEF2FF" VerticalAlignment="Center">
+            <Border Grid.Column="6" Style="{StaticResource RiskPill}" Background="#EEF2FF" VerticalAlignment="Center">
               <TextBlock Text="{Binding TrustText}" FontSize="11" Foreground="#3730A3" />
             </Border>
 
-            <ToggleButton Grid.Column="6" IsChecked="{Binding IsExpanded, Mode=TwoWay}"
+            <ToggleButton Grid.Column="7" IsChecked="{Binding IsExpanded, Mode=TwoWay}"
                           VerticalAlignment="Center" Width="24" Height="24"
-                          Content="▾" ToolTip="展开证据明细">
+                          Content="▾" ToolTip="展开判定依据">
               <ToggleButton.Template>
                 <ControlTemplate TargetType="ToggleButton">
                   <Border Background="Transparent" CornerRadius="4">
@@ -73,7 +119,7 @@
           </Grid>
 
           <!-- 证据链：默认折叠，按需渲染 -->
-          <Border Margin="72,6,0,0" Padding="10" Background="#FAFBFC" CornerRadius="6"
+          <Border Margin="98,6,0,0" Padding="10" Background="#FAFBFC" CornerRadius="6"
                   BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
                   Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVisibility}}">
             <StackPanel>
@@ -140,14 +186,17 @@
         </Grid.ColumnDefinitions>
 
         <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-          <TextBlock Text="RubbishCleaner" Style="{StaticResource TitleText}" />
-          <TextBlock Text="v0.1" Style="{StaticResource SecondaryText}" Margin="8,4,0,0" />
+          <Image Source="/app.ico" Width="22" Height="22" VerticalAlignment="Center"
+                 RenderOptions.BitmapScalingMode="HighQuality" />
+          <TextBlock Text="RubbishCleaner" Style="{StaticResource TitleText}" Margin="8,0,0,0" />
+          <TextBlock Text="v0.1.1" Style="{StaticResource SecondaryText}" Margin="8,4,0,0" />
         </StackPanel>
 
         <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">
           <Button Content="开始扫描" Style="{StaticResource PrimaryButton}" Command="{Binding ScanCommand}" />
           <Button Content="停止" Command="{Binding CancelCommand}" />
-          <Button Content="导出报告" Command="{Binding ExportReportCommand}" />
+          <Button Content="导出 CSV" Command="{Binding ExportCsvCommand}" ToolTip="可用 Excel 打开筛选统计" />
+          <Button Content="导出 HTML" Command="{Binding ExportHtmlCommand}" ToolTip="可直接查看或分享的报告" />
           <Button Content="打开日志" Command="{Binding OpenLogFolderCommand}" />
         </StackPanel>
       </Grid>
@@ -202,25 +251,50 @@
             <RowDefinition Height="*" />
           </Grid.RowDefinitions>
 
-          <!-- 表头 -->
-          <Border Grid.Row="0" Background="#FAFBFC" BorderBrush="{StaticResource BorderBrush}"
-                  BorderThickness="0,0,0,1" Padding="10,8" CornerRadius="8,8,0,0">
+          <!--
+            表头（点击排序）。
+            右侧留白由代码按 SystemParameters.VerticalScrollBarWidth 动态补齐，
+            原因：ListBox 的垂直滚动条会占掉行内容宽度，表头若不留同样宽度就会整体错位。
+            写死数值在不同 DPI / 主题下不准（实测 27px 仍有偏差）。
+          -->
+          <Border Grid.Row="0" x:Name="HeaderBorder" Background="#FAFBFC"
+                  BorderBrush="{StaticResource BorderBrush}"
+                  BorderThickness="0,0,0,1" Padding="10,6" CornerRadius="8,8,0,0">
             <Grid>
               <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="72" />
-                <ColumnDefinition Width="*" MinWidth="180" />
-                <ColumnDefinition Width="190" />
+                <ColumnDefinition Width="26" />
+                <ColumnDefinition Width="*" MinWidth="150" />
                 <ColumnDefinition Width="150" />
-                <ColumnDefinition Width="88" />
-                <ColumnDefinition Width="64" />
-                <ColumnDefinition Width="34" />
+                <ColumnDefinition Width="190" />
+                <ColumnDefinition Width="100" />
+                <ColumnDefinition Width="62" />
+                <ColumnDefinition Width="28" />
               </Grid.ColumnDefinitions>
-              <TextBlock Grid.Column="0" Text="等级" Style="{StaticResource SecondaryText}" />
-              <TextBlock Grid.Column="1" Text="程序" Style="{StaticResource SecondaryText}" Margin="8,0" />
-              <TextBlock Grid.Column="2" Text="启动方式" Style="{StaticResource SecondaryText}" />
-              <TextBlock Grid.Column="3" Text="发行商 / 状态" Style="{StaticResource SecondaryText}" />
-              <TextBlock Grid.Column="4" Text="风险分" Style="{StaticResource SecondaryText}" />
-              <TextBlock Grid.Column="5" Text="特征库" Style="{StaticResource SecondaryText}" />
+
+              <Button Grid.Column="0" Style="{StaticResource HeaderButton}"
+                      Command="{Binding SortCommand}" CommandParameter="{x:Static infra:SortColumn.Level}"
+                      Content="{Binding LevelHeader}" ToolTip="按风险等级排序" />
+
+              <Button Grid.Column="2" Style="{StaticResource HeaderButton}" Margin="6,0,8,0"
+                      Command="{Binding SortCommand}" CommandParameter="{x:Static infra:SortColumn.Name}"
+                      Content="{Binding NameHeader}" ToolTip="按名称排序" />
+
+              <Button Grid.Column="3" Style="{StaticResource HeaderButton}"
+                      Command="{Binding SortCommand}" CommandParameter="{x:Static infra:SortColumn.StartupSource}"
+                      Content="{Binding StartupHeader}" ToolTip="按启动方式排序" />
+
+              <Button Grid.Column="4" Style="{StaticResource HeaderButton}"
+                      Command="{Binding SortCommand}" CommandParameter="{x:Static infra:SortColumn.Publisher}"
+                      Content="{Binding PublisherHeader}" ToolTip="按发行商排序" />
+
+              <Button Grid.Column="5" Style="{StaticResource HeaderButton}"
+                      Command="{Binding SortCommand}" CommandParameter="{x:Static infra:SortColumn.Score}"
+                      Content="{Binding ScoreHeader}" ToolTip="按风险分排序" />
+
+              <Button Grid.Column="6" Style="{StaticResource HeaderButton}"
+                      Command="{Binding SortCommand}" CommandParameter="{x:Static infra:SortColumn.Trust}"
+                      Content="{Binding TrustHeader}" ToolTip="按确认表判定排序" />
             </Grid>
           </Border>
 
@@ -233,6 +307,7 @@
                    BorderThickness="0"
                    Background="Transparent"
                    ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                   ScrollViewer.VerticalScrollBarVisibility="Visible"
                    VirtualizingPanel.IsVirtualizing="True"
                    VirtualizingPanel.VirtualizationMode="Recycling"
                    VirtualizingPanel.ScrollUnit="Pixel"

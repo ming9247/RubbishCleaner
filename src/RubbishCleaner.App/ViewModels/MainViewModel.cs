@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.IO;
+using System.Text;
 using System.Windows.Input;
 using RubbishCleaner.App.Infrastructure;
 using RubbishCleaner.Common.Diagnostics;
@@ -50,16 +52,24 @@ public sealed class MainViewModel : ObservableObject
         RelaunchElevatedCommand = new RelayCommand(RelaunchElevated, () => !IsElevated);
         OpenLogFolderCommand = new RelayCommand(OpenLogFolder);
         OpenContainingFolderCommand = new RelayCommand(OpenContainingFolder, p => p is SoftwareItemViewModel { ExecutablePath: not null });
-        ExportReportCommand = new RelayCommand(ExportReport, () => Profiles.Count > 0);
+        ExportCsvCommand = new RelayCommand(ExportCsv, () => Profiles.Count > 0);
+        ExportHtmlCommand = new RelayCommand(ExportHtml, () => Profiles.Count > 0);
         ShowAllCommand = new RelayCommand(() => ApplyFilter(null));
         ShowHighRiskCommand = new RelayCommand(() => ApplyFilter(RiskLevel.HighRisk));
         ShowSuspiciousCommand = new RelayCommand(() => ApplyFilter(RiskLevel.Suspicious));
         ShowNormalCommand = new RelayCommand(() => ApplyFilter(RiskLevel.Normal));
+
+        SortCommand = new RelayCommand(SortBy);
+
+        Sort.PropertyChanged += OnSortChanged;
     }
 
     public ObservableCollection<SoftwareItemViewModel> Profiles { get; } = [];
 
     public ObservableCollection<SoftwareItemViewModel> FilteredProfiles { get; } = [];
+
+    /// <summary>排序状态；表头点击后由此驱动重排。</summary>
+    public SortState Sort { get; } = new();
 
     public ICommand ScanCommand { get; }
 
@@ -71,7 +81,9 @@ public sealed class MainViewModel : ObservableObject
 
     public ICommand OpenContainingFolderCommand { get; }
 
-    public ICommand ExportReportCommand { get; }
+    public ICommand ExportCsvCommand { get; }
+
+    public ICommand ExportHtmlCommand { get; }
 
     public ICommand ShowAllCommand { get; }
 
@@ -81,9 +93,34 @@ public sealed class MainViewModel : ObservableObject
 
     public ICommand ShowNormalCommand { get; }
 
+    /// <summary>表头点击命令，参数为 <see cref="SortColumn"/>。</summary>
+    public ICommand SortCommand { get; }
+
     public bool IsElevated { get; }
 
     public string TrustTableInfo { get; }
+
+    // 表头文本。
+    // 注意：不能写成 Content="{Binding XIndicator, StringFormat=等级 {0}}"——
+    // ContentControl.Content 是 object 类型，Binding.StringFormat 只在目标属性为 string 时生效，
+    // 结果会丢掉列名只剩箭头（实测踩过）。因此在这里直接拼好完整字符串。
+    public string ScoreHeader => Compose("风险分", SortColumn.Score);
+
+    public string LevelHeader => Compose("等级", SortColumn.Level);
+
+    public string NameHeader => Compose("程序", SortColumn.Name);
+
+    public string StartupHeader => Compose("启动方式", SortColumn.StartupSource);
+
+    public string PublisherHeader => Compose("发行商 / 状态", SortColumn.Publisher);
+
+    public string TrustHeader => Compose("特征库", SortColumn.Trust);
+
+    private string Compose(string title, SortColumn column)
+    {
+        var indicator = Sort.IndicatorFor(column);
+        return string.IsNullOrEmpty(indicator) ? title : $"{title} {indicator}";
+    }
 
     public string EnvironmentReport
     {
@@ -225,6 +262,31 @@ public sealed class MainViewModel : ObservableObject
         StatusText = "正在停止…";
     }
 
+    private void SortBy(object? parameter)
+    {
+        if (parameter is SortColumn column)
+        {
+            Sort.Toggle(column);
+        }
+        else if (parameter is string name && Enum.TryParse<SortColumn>(name, ignoreCase: true, out var parsed))
+        {
+            Sort.Toggle(parsed);
+        }
+    }
+
+    private void OnSortChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        OnPropertyChanged(nameof(ScoreHeader));
+        OnPropertyChanged(nameof(LevelHeader));
+        OnPropertyChanged(nameof(NameHeader));
+        OnPropertyChanged(nameof(StartupHeader));
+        OnPropertyChanged(nameof(PublisherHeader));
+        OnPropertyChanged(nameof(TrustHeader));
+
+        // 只重排当前可见列表，不改变底层 Profiles 的顺序（避免过滤切换时顺序丢失）
+        ApplySorting();
+    }
+
     private void ApplyFilter(RiskLevel? level)
     {
         _filterLevel = level;
@@ -234,9 +296,32 @@ public sealed class MainViewModel : ObservableObject
             FilteredProfiles.Add(profile);
         }
 
+        ApplySorting();
+
         StatusText = level is null
             ? "显示全部"
             : $"仅显示「{level.Value.ToDisplayName()}」";
+    }
+
+    /// <summary>按当前 <see cref="Sort"/> 状态对可见列表排序。</summary>
+    private void ApplySorting()
+    {
+        if (FilteredProfiles.Count == 0)
+        {
+            return;
+        }
+
+        var byKey = FilteredProfiles.ToDictionary(p => p.Profile, p => p);
+        var sorted = SoftwareSorter.Sort(FilteredProfiles.Select(p => p.Profile), Sort.Column, Sort.Direction);
+
+        FilteredProfiles.Clear();
+        foreach (var profile in sorted)
+        {
+            if (byKey.TryGetValue(profile, out var vm))
+            {
+                FilteredProfiles.Add(vm);
+            }
+        }
     }
 
     private void RelaunchElevated()
@@ -297,44 +382,37 @@ public sealed class MainViewModel : ObservableObject
         }
     }
 
-    private void ExportReport()
+    // ---------------- 报告导出 ----------------
+
+    private void ExportCsv() => Export(ReportFormat.Csv);
+
+    private void ExportHtml() => Export(ReportFormat.Html);
+
+    /// <summary>
+    /// 导出报告：生成交给 <see cref="ReportWriter"/>（可测试），
+    /// 这里只负责选目录、写文件与打开资源管理器（副作用留在 ViewModel）。
+    /// </summary>
+    private void Export(ReportFormat format)
     {
         try
         {
-            var path = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
-                $"RubbishCleaner-报告-{DateTime.Now:yyyyMMdd-HHmmss}.txt");
+            var desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+            var path = ReportWriter.WriteTo(
+                desktop,
+                Profiles.Select(p => p.Profile),
+                format,
+                CountsText,
+                TrustTableInfo,
+                DateTime.Now);
 
-            var lines = new List<string>
-            {
-                "RubbishCleaner 扫描报告",
-                $"生成时间：{DateTime.Now:yyyy-MM-dd HH:mm:ss}",
-                $"运行环境：{EnvironmentReport.Replace(Environment.NewLine, " ")}",
-                $"统计：{CountsText}",
-                new string('-', 80),
-            };
-
-            foreach (var item in Profiles)
-            {
-                lines.Add($"[{item.LevelText}] {item.DisplayName}  分数 {item.TotalScore}");
-                lines.Add($"  路径   : {item.ExecutablePath ?? "（未知）"}");
-                lines.Add($"  启动方式: {item.StartupSummary}");
-                lines.Add($"  发行商 : {item.Publisher ?? "（无签名）"}");
-                foreach (var evidence in item.Evidences)
-                {
-                    lines.Add($"  · {evidence.Message}");
-                }
-
-                lines.Add(string.Empty);
-            }
-
-            File.WriteAllLines(path, lines);
             StatusText = $"报告已导出：{path}";
+            Log.Info($"导出报告：{path}");
             System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{path}\"");
         }
         catch (Exception ex)
         {
             ErrorText = $"导出报告失败：{ex.Message}";
+            Log.Error("导出报告失败", ex);
         }
     }
 }
