@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RootNamespace>RubbishCleaner.Core</RootNamespace>
+    <AssemblyName>RubbishCleaner.Core</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RubbishCleaner.Common\RubbishCleaner.Common.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="RubbishCleaner.Core.Tests" />
+  </ItemGroup>
+
+</Project>

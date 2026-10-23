@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RootNamespace>RubbishCleaner.Smoke</RootNamespace>
+    <AssemblyName>RubbishCleaner.Smoke</AssemblyName>
+    <!-- 冒烟工具只读扫描，不需要提权；便于 CI / 开发期快速验证 -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\RubbishCleaner.Core\RubbishCleaner.Core.csproj" />
+    <ProjectReference Include="..\..\src\RubbishCleaner.Common\RubbishCleaner.Common.csproj" />
+  </ItemGroup>
+
+</Project>

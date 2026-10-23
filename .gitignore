@@ -1,0 +1,26 @@
+# ---------- .NET ----------
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+publish/
+dist/
+TestResults/
+*.trx
+*.coverage
+*.nupkg
+
+# ---------- Rider / VS Code ----------
+.idea/
+.vscode/
+*.DotSettings.user
+
+# ---------- 本地运行产物 ----------
+logs/
+*.log
+work-logs/tmp/

@@ -1,0 +1,17 @@
+<Application x:Class="RubbishCleaner.App.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:infra="clr-namespace:RubbishCleaner.App.Infrastructure">
+  <Application.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceDictionary Source="Themes/Styles.xaml" />
+      </ResourceDictionary.MergedDictionaries>
+
+      <infra:RiskLevelToBrushConverter x:Key="RiskToBrush" />
+      <infra:SeverityToBrushConverter x:Key="SeverityToBrush" />
+      <infra:BoolToVisibilityConverter x:Key="BoolToVisibility" />
+      <infra:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibility" />
+    </ResourceDictionary>
+  </Application.Resources>
+</Application>
