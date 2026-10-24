@@ -109,6 +109,54 @@ public sealed class MainViewModel : ObservableObject
                 return result;
             },
             () => Profiles.Select(p => p.Profile).ToList());
+
+        // v0.3.1：卸载前自动快照、卸载后自动定向扫描，结果送到残留页。
+        // 软件页与残留页互不知道对方，全部经由这里中转。
+        Apps.UseResidueCoordinator(new UninstallResidueCoordinator(
+            installedAppsProvider: () =>
+            {
+                var result = new RubbishCleaner.Core.Uninstall.InstalledAppEnumerator().Enumerate();
+                if (Apps.Apps.Count > 0)
+                {
+                    return (IReadOnlyList<RubbishCleaner.Core.Models.InstalledApp>)
+                        Apps.Apps.Select(a => a.App).ToList();
+                }
+
+                return result.Apps;
+            }));
+        Apps.ResidueFound += OnResidueFound;
+    }
+
+    /// <summary>残留页是否需要提醒用户查看（用于切换页签时的角标/提示）。</summary>
+    private bool _hasPendingResidueHint;
+
+    /// <summary>是否有"卸载后发现残留"的待查看提示。</summary>
+    public bool HasPendingResidueHint
+    {
+        get => _hasPendingResidueHint;
+        private set => SetProperty(ref _hasPendingResidueHint, value);
+    }
+
+    private void OnResidueFound(object? sender, RubbishCleaner.Core.Residue.UninstallResidueResult result)
+    {
+        // 必须在 UI 线程上操作 ObservableCollection；该事件由卸载命令的
+        // async  continuation 抛出，理论上已在 UI 线程，但显式Dispatcher更稳。
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher is not null && !dispatcher.CheckAccess())
+        {
+            dispatcher.Invoke(() => ApplyResidueResult(result));
+        }
+        else
+        {
+            ApplyResidueResult(result);
+        }
+    }
+
+    private void ApplyResidueResult(RubbishCleaner.Core.Residue.UninstallResidueResult result)
+    {
+        Leftovers.ShowUninstallResidue(result);
+        HasPendingResidueHint = true;
+        Log.Info($"已把「{result.SoftwareName}」的卸载残留送到残留扫描页");
     }
 
     /// <summary>软件管理页的视图模型（v0.2）。</summary>

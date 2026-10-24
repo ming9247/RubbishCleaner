@@ -317,6 +317,65 @@ public sealed class LeftoversViewModel : ObservableObject
 
     public bool CanClean => CleanableCount > 0 && !IsScanning;
 
+    /// <summary>
+    /// 显示一次<b>定向</b>扫描结果（v0.3.1 卸载联动）。
+    ///
+    /// 与 <see cref="ScanAsync"/> 的区别：这份清单来自"刚刚卸载了 X"这个已知事实，
+    /// 因此每一条都是<b>确定性残留</b>而不是启发式猜测。UI 上要能看出这个区别，
+    /// 否则用户会以为通用扫描漏报了别的东西。
+    /// </summary>
+    public void ShowUninstallResidue(Core.Residue.UninstallResidueResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+
+        Items.Clear();
+        FilteredItems.Clear();
+
+        foreach (var item in result.Directories)
+        {
+            Items.Add(new LeftoverItemViewModel(item));
+        }
+
+        // 文件级残留单独归组：它们是"卸载器没删干净的具体文件"，
+        // 与目录级残留的处置方式不同（删目录 vs 删文件），不能混在一个列表里让用户勾。
+        foreach (var file in result.RemainingFiles)
+        {
+            Items.Add(new LeftoverItemViewModel(new Core.Models.LeftoverItem
+            {
+                Id = file.ToLowerInvariant(),
+                DirectoryPath = file,
+                Kind = Core.Models.LeftoverKind.StartupTrailDirectory,
+                Confidence = Core.Models.LeftoverConfidence.High,
+                SoftwareName = result.SoftwareName,
+                Evidence =
+                [
+                    $"「{result.SoftwareName}」卸载前该文件存在，卸载后仍未被卸载程序删除",
+                    "属于卸载器漏删的具体文件，可单独移入回收站",
+                ],
+            }));
+        }
+
+        ApplyFilter();
+        HasScanned = true;
+
+        IndexText = "定向扫描（卸载后对比）";
+        SummaryText = result.Directories.Count == 0 && result.RemainingFiles.Count == 0
+            ? $"「{result.SoftwareName}」卸载得很干净，没有发现残留"
+            : $"「{result.SoftwareName}」卸载后残留：{result.RemainingFiles.Count} 个文件"
+              + (result.Directories.Count > 0 ? $"、{result.Directories.Count} 个目录" : string.Empty)
+              + $"（卸载器已清理 {result.RemovedCount}/{result.SnapshotCount} 项）";
+
+        StatusText = $"「{result.SoftwareName}」卸载完成，以上是它留下的残留";
+
+        OnPropertyChanged(nameof(TotalCount));
+        OnPropertyChanged(nameof(CleanableCount));
+        OnPropertyChanged(nameof(TotalBytes));
+        OnPropertyChanged(nameof(TotalSizeText));
+        OnPropertyChanged(nameof(CleanButtonText));
+        OnPropertyChanged(nameof(CanClean));
+        System.Windows.Input.CommandManager.InvalidateRequerySuggested();
+    }
+
     /// <summary>执行一次扫描。只读，不改任何文件。</summary>
     public async Task ScanAsync()
     {

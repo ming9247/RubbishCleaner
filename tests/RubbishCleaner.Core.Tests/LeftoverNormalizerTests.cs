@@ -51,10 +51,24 @@ public class SoftwareNameNormalizerTests
     }
 
     [Fact]
-    public void Variants_TooShort_ReturnsEmpty()
+    public void Variants_SingleCharacterOrEmpty_ReturnsEmpty()
     {
-        Assert.Empty(SoftwareNameNormalizer.Variants("ab"));
+        // 单字符仍然拒绝：一个字母/汉字不构成软件名，匹配它等于匹配一切。
+        Assert.Empty(SoftwareNameNormalizer.Variants("a"));
+        Assert.Empty(SoftwareNameNormalizer.Variants("中"));
         Assert.Empty(SoftwareNameNormalizer.Variants(null));
+        Assert.Empty(SoftwareNameNormalizer.Variants("   "));
+    }
+
+    [Fact]
+    public void Variants_TwoCharacters_AreKeptForChineseNames()
+    {
+        // 中文软件名大量是两个字（微信、钉钉、抖音）。
+        // v0.3.1 起定向扫描会用到它们，因此阈值从 3 降到 2。
+        // 防误报的责任在调用方：短名字只允许全等匹配，不允许包含匹配。
+        var twoChinese = new string(new[] { '微', '信' });
+        Assert.Equal(new[] { twoChinese }, SoftwareNameNormalizer.Variants(twoChinese));
+        Assert.Equal(new[] { "qq" }, SoftwareNameNormalizer.Variants("QQ"));
     }
 
     [Fact]

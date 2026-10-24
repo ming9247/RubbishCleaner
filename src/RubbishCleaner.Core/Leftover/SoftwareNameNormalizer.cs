@@ -52,7 +52,12 @@ public static class SoftwareNameNormalizer
     public static IReadOnlyList<string> Variants(string? text)
     {
         var full = Normalize(text);
-        if (full.Length < 3)
+
+        // 长度 ≥ 2 就收：中文软件名大量是两个字（微信、QQ、抖音、钉钉），
+        // 通用扫描里它们因为"太短会误报"被排除，但定向扫描（v0.3.1）里
+        // 软件名是<b>已知事实</b>，"刚卸载了微信，%AppData% 下还有微信目录"这条推理成立。
+        // 防误报的责任交给调用方：短名字只允许<b>全等</b>匹配，不允许包含匹配。
+        if (full.Length < 2)
         {
             return [];
         }

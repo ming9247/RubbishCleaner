@@ -231,7 +231,7 @@
           <Image Source="/app.ico" Width="22" Height="22" VerticalAlignment="Center"
                  RenderOptions.BitmapScalingMode="HighQuality" />
           <TextBlock Text="RubbishCleaner" Style="{StaticResource TitleText}" Margin="8,0,0,0" />
-          <TextBlock Text="v0.3.0" Style="{StaticResource SecondaryText}" Margin="8,4,0,0" />
+          <TextBlock Text="v0.3.1" Style="{StaticResource SecondaryText}" Margin="8,4,0,0" />
         </StackPanel>
 
         <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">

@@ -73,6 +73,29 @@ public sealed class AppsViewModel : ObservableObject
     private readonly InstalledAppEnumerator _enumerator = new();
     private readonly UninstallExecutor _executor = new();
 
+    /// <summary>
+    /// "卸载 ↔ 残留扫描"的协调者（v0.3.1）。
+    ///
+    /// 由 <see cref="MainViewModel"/> 在组装时注入；为 null 时整条联动链路静默关闭，
+    /// 这样 v0.2 的卸载流程不会因为 v0.3.1 的任何问题而回归。
+    /// </summary>
+    private IUninstallResidueCoordinator? _residueCoordinator;
+
+    /// <summary>注入协调者。返回自身以便链式调用。</summary>
+    public AppsViewModel UseResidueCoordinator(IUninstallResidueCoordinator coordinator)
+    {
+        _residueCoordinator = coordinator;
+        return this;
+    }
+
+    /// <summary>
+    /// 卸载完成后发现残留时触发。
+    ///
+    /// 上层（<c>MainViewModel</c>）订阅它来跳到残留页并展示清单。
+    /// 用事件而不是直接引用残留页 ViewModel，是为了让两个页签互不知道对方存在。
+    /// </summary>
+    public event EventHandler<Core.Residue.UninstallResidueResult>? ResidueFound;
+
     private bool _isLoading;
     private string _statusText = "点击「刷新列表」读取已安装软件";
     private string _summaryText = string.Empty;
@@ -275,6 +298,23 @@ public sealed class AppsViewModel : ObservableObject
             return;
         }
 
+        // 卸载前快照：记录"卸载前磁盘上有什么"，卸载后才有对比的基准。
+        // 快照失败不阻塞卸载——用户的目的是卸掉软件，不是留下快照。
+        var captured = false;
+        try
+        {
+            captured = _residueCoordinator?.CaptureBefore(item.App) ?? false;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"卸载前快照失败（不影响卸载）：{ex.Message}");
+        }
+
+        if (captured)
+        {
+            StatusText = $"已记录「{item.DisplayName}」的卸载前状态，正在等待卸载程序结束…";
+        }
+
         StatusText = $"正在等待「{item.DisplayName}」的卸载程序结束…";
 
         var outcome = await Task.Run(() => _executor.Execute(item.App.UninstallCommand)).ConfigureAwait(true);
@@ -289,6 +329,40 @@ public sealed class AppsViewModel : ObservableObject
 
         // 卸载后刷新列表，让用户看到真实变化
         await RefreshAsync();
+
+        await ReportResidueAsync(item.App).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// 卸载完成后扫一次该软件的残留，并把结果抛给上层去展示。
+    ///
+    /// 通过 <see cref="ResidueFound"/> 事件而不是直接操作残留页：
+    /// 软件页不该知道残留页的存在（否则两个 ViewModel 互相持有，改一个坏一个）。
+    /// </summary>
+    private async Task ReportResidueAsync(InstalledApp app)
+    {
+        if (_residueCoordinator is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var result = await _residueCoordinator
+                .ScanAfterAsync(app)
+                .ConfigureAwait(true);
+
+            if (result is { HasResidue: true })
+            {
+                Log.Info($"卸载 {app.DisplayName} 后发现残留：{result.RemainingFiles.Count} 个文件、{result.Directories.Count} 个目录");
+                ResidueFound?.Invoke(this, result);
+            }
+        }
+        catch (Exception ex)
+        {
+            // 残留扫描失败绝不能影响"已经卸完了"这个事实，只记日志。
+            Log.Warn($"卸载后残留扫描失败：{ex.Message}");
+        }
     }
 
     private void ApplyFilter()
