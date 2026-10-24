@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using RubbishCleaner.Core.Abstractions;
+using RubbishCleaner.Core.Cleanup;
 using RubbishCleaner.Core.Models;
 using RubbishCleaner.Core.Scoring;
 using RubbishCleaner.Core.Trust;
@@ -254,6 +255,16 @@ public sealed class StartupScanner
             list.Add(Evidence.Warning(
                 "ORPHAN_STARTUP",
                 $"启动项「{orphan.Name}」指向的文件已不存在：{orphan.ExecutablePath}（位于 {orphan.Location}）"));
+
+            // 不可自动清理的类型（服务/计划任务/快捷方式）给出可复制的手动处理命令。
+            // 刻意只给指引、不代劳：删服务可能影响依赖它的其他服务，风险由用户判断。
+            var guide = ManualFixAdvisor.For(orphan);
+            if (guide is not null && !string.IsNullOrWhiteSpace(guide.Command))
+            {
+                list.Add(Evidence.Info(
+                    "ORPHAN_MANUAL_FIX",
+                    $"需手动处理（{guide.Title}）：{guide.Command}"));
+            }
         }
 
         if (profile.LiveProcess is { IsRunning: true } facts)

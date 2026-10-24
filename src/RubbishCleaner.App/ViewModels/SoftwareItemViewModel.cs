@@ -1,5 +1,6 @@
 using System.Windows.Media;
 using RubbishCleaner.App.Infrastructure;
+using RubbishCleaner.Core.Cleanup;
 using RubbishCleaner.Core.Models;
 
 namespace RubbishCleaner.App.ViewModels;
@@ -21,6 +22,14 @@ public sealed class SoftwareItemViewModel : ObservableObject
             .ToList();
 
         Icon = IconCache.Get(profile.ExecutablePath);
+
+        // 只有不可自动清理的残留才需要"手动处理指引"；
+        // Run 类的失效项由"清理残留启动项"按钮统一处理，不必在这里重复。
+        ManualFixes = profile.OrphanEntries
+            .Select(ManualFixAdvisor.For)
+            .Where(g => g is not null)
+            .Select(g => new ManualFixItem(g!))
+            .ToList();
     }
 
     public SoftwareProfile Profile { get; }
@@ -98,6 +107,18 @@ public sealed class SoftwareItemViewModel : ObservableObject
 
     public string HitSummary => $"{Profile.Score.HitCount}/{Profile.Score.RuleCount} 条规则命中";
 
+    /// <summary>
+    /// 需要手动处理的残留项及其可复制命令。
+    ///
+    /// 只有不可自动清理的类型（服务 / 计划任务 / 快捷方式）会出现在这里。
+    /// UI 用只读文本框展示，方便用户直接复制，但不会替用户执行——
+    /// 删服务可能影响依赖它的其他服务，风险必须由用户自己判断。
+    /// </summary>
+    public IReadOnlyList<ManualFixItem> ManualFixes { get; } = [];
+
+    /// <summary>是否有需要手动处理的残留。</summary>
+    public bool HasManualFixes => ManualFixes.Count > 0;
+
     public IReadOnlyList<EvidenceItemViewModel> Evidences { get; }
 
     public IReadOnlyList<string> ScoreItems { get; }
@@ -107,6 +128,26 @@ public sealed class SoftwareItemViewModel : ObservableObject
         get => _isExpanded;
         set => SetProperty(ref _isExpanded, value);
     }
+}
+
+/// <summary>一条"需要手动处理"的展示项（含可复制命令）。</summary>
+public sealed class ManualFixItem(ManualFixGuide guide)
+{
+    public string EntryName { get; } = guide.EntryName;
+
+    public string Title { get; } = guide.Title;
+
+    public string Explanation { get; } = guide.Explanation;
+
+    /// <summary>可复制的命令；为空时说明只需手工操作（例如删快捷方式）。</summary>
+    public string? Command { get; } = guide.Command;
+
+    public bool HasCommand { get; } = !string.IsNullOrWhiteSpace(guide.Command);
+
+    /// <summary>补充提示，例如服务名与文件名不一致的提醒。</summary>
+    public string? CommandHint { get; } = guide.CommandHint;
+
+    public bool HasHint { get; } = !string.IsNullOrWhiteSpace(guide.CommandHint);
 }
 
 /// <summary>一条证据的展示项。</summary>

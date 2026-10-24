@@ -68,7 +68,7 @@ public sealed class MainViewModel : ObservableObject
         ShowOrphanCommand = new RelayCommand(ApplyOrphanFilter, () => OrphanCount > 0);
 
         // 清理残留启动项：只对失效项生效，且需要用户二次确认。
-        CleanOrphansCommand = new AsyncRelayCommand(CleanOrphansAsync, () => OrphanCount > 0 && !IsScanning)
+        CleanOrphansCommand = new AsyncRelayCommand(CleanOrphansAsync, () => CanCleanOrphans)
         {
             OnError = ex =>
             {
@@ -121,11 +121,50 @@ public sealed class MainViewModel : ObservableObject
     /// <summary>「仅看残留」筛选命令。</summary>
     public ICommand ShowOrphanCommand { get; }
 
-    /// <summary>失效启动项总数（用于按钮文案与可用性）。</summary>
+    /// <summary>
+    /// 失效启动项总数（含不可自动清理的类型，例如服务）。
+    ///
+    /// 注意与 <see cref="CleanableCount"/> 的区别：这个数字只用于"筛出并展示"，
+    /// <b>不能</b>用来判断清理按钮是否可用——否则会出现"显示 4 条却点不了清理"的困惑（实测踩过）。
+    /// </summary>
     public int OrphanCount => Profiles.Sum(p => p.OrphanCount);
 
-    /// <summary>「清理」分组按钮文案，带实时计数。</summary>
+    /// <summary>
+    /// 可自动清理的残留条数（只统计 Run/RunOnce 且有注册表坐标的）。
+    /// 服务与计划任务的残留会在列表里显示，但不计入这个数字，因为它们只能手动处理。
+    /// </summary>
+    public int CleanableCount => Profiles
+        .SelectMany(p => p.Profile.StartupEntries)
+        .Count(e => e.IsOrphan
+                    && e.RegistryAnchor is not null
+                    && e.Source is StartupSourceKind.RegistryRunHkcu
+                        or StartupSourceKind.RegistryRunHklm
+                        or StartupSourceKind.RegistryRunWow64);
+
+    /// <summary>「筛选」按钮文案：只反映总数，因为它只负责筛出展示。</summary>
     public string OrphanFilterText => OrphanCount > 0 ? $"残留启动项（{OrphanCount}）" : "残留启动项";
+
+    /// <summary>
+    /// 「清理」按钮文案：把"总数"和"可清理数"都写出来，
+    /// 这样残留全是服务类时会显示"清理残留启动项（可清理 0）"，
+    /// 用户一眼就知道为什么点不动。
+    /// </summary>
+    public string CleanOrphansText
+    {
+        get
+        {
+            if (CleanableCount > 0)
+            {
+                return $"清理 {CleanableCount} 条";
+            }
+
+            // 有残留但都不能自动清理：直说"无可清理"，避免用户反复点击
+            return OrphanCount > 0 ? "无需自动清理" : "清理残留启动项";
+        }
+    }
+
+    /// <summary>清理按钮是否可用：只看可清理数，不看残留总数。</summary>
+    public bool CanCleanOrphans => CleanableCount > 0 && !IsScanning;
 
     /// <summary>表头点击命令，参数为 <see cref="SortColumn"/>。</summary>
     public ICommand SortCommand { get; }
@@ -283,7 +322,7 @@ public sealed class MainViewModel : ObservableObject
             StatusText = result.DegradedSources.Count > 0
                 ? $"扫描完成，但有 {result.DegradedSources.Count} 个数据源不完整"
                 : orphanCount > 0
-                    ? $"扫描完成，发现 {orphanCount} 条失效启动项（可清理）"
+                    ? $"扫描完成，发现 {orphanCount} 条失效启动项（可自动清理 {CleanableCount} 条）"
                     : "扫描完成";
 
             if (result.DegradedSources.Count > 0)
@@ -295,7 +334,10 @@ public sealed class MainViewModel : ObservableObject
             OnPropertyChanged(nameof(SuspiciousCount));
             OnPropertyChanged(nameof(NormalCount));
             OnPropertyChanged(nameof(OrphanCount));
+            OnPropertyChanged(nameof(CleanableCount));
             OnPropertyChanged(nameof(OrphanFilterText));
+            OnPropertyChanged(nameof(CleanOrphansText));
+            OnPropertyChanged(nameof(CanCleanOrphans));
 
             // RelayCommand 的 CanExecute 依赖 OrphanCount，扫描前它是 0（按钮禁用），
             // 扫描后必须强制重新求值，否则按钮会一直灰着（实测踩过）。
@@ -366,9 +408,11 @@ public sealed class MainViewModel : ObservableObject
         _filterOrphanOnly = true;
         RebuildFilteredList();
 
-        StatusText = OrphanCount > 0
-            ? $"仅显示残留启动项（{OrphanCount} 条），可安全清理"
-            : "没有发现失效的启动项";
+        StatusText = OrphanCount == 0
+            ? "没有发现失效的启动项"
+            : CleanableCount == OrphanCount
+                ? $"仅显示残留启动项（{OrphanCount} 条），全部可自动清理"
+                : $"仅显示残留启动项（{OrphanCount} 条，其中 {CleanableCount} 条可自动清理，其余需手动处理）";
     }
 
     /// <summary>
