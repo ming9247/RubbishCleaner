@@ -81,10 +81,50 @@ public sealed class MainViewModel : ObservableObject
         SortCommand = new RelayCommand(SortBy);
 
         Sort.PropertyChanged += OnSortChanged;
+
+        // 残留扫描复用「已安装软件」页的枚举器，并在扫描时取当前启动项扫描结果做交叉验证。
+        Leftovers = new LeftoversViewModel(
+            RubbishCleaner.Core.Leftover.LeftoverScanner.CreateDefault(),
+            () => new RubbishCleaner.Core.Leftover.LeftoverCleaner(
+                path =>
+                {
+                    var result = RubbishCleaner.Common.Win32.RecycleBin.MoveToRecycleBin(path);
+                    return result.Success
+                        ? RubbishCleaner.Core.Leftover.LeftoverDeleteOutcome.Ok(result.Message)
+                        : RubbishCleaner.Core.Leftover.LeftoverDeleteOutcome.Fail(result.Message);
+                }),
+            () =>
+            {
+                // 复用「已安装软件」页已有的枚举结果，避免两次读注册表之间软件被卸载导致结论矛盾；
+                // 但 ClaimPaths（含被过滤条目的路径证据）必须重新枚举才能拿到，
+                // 所以这里总是走一次全新的 Enumerate()，代价约 100ms。
+                var result = new RubbishCleaner.Core.Uninstall.InstalledAppEnumerator().Enumerate();
+
+                // 若软件页已经加载过，用它的列表覆盖，保证两个页签看到同一批软件。
+                if (Apps.Apps.Count > 0)
+                {
+                    return result with { Apps = Apps.Apps.Select(a => a.App).ToList() };
+                }
+
+                return result;
+            },
+            () => Profiles.Select(p => p.Profile).ToList());
     }
 
     /// <summary>软件管理页的视图模型（v0.2）。</summary>
     public AppsViewModel Apps { get; } = new();
+
+    /// <summary>
+    /// 残留扫描页的视图模型（v0.3）。
+    ///
+    /// 三条数据依赖都从这里注入，而不是让 LeftoversViewModel 自己去读：
+    /// <list type="bullet">
+    /// <item>已安装软件列表 —— 与「已安装软件」页共享同一份读取逻辑；</item>
+    /// <item>上一次启动项扫描结果 —— 用于"失效启动项 → 残留目录"的交叉验证。</item>
+    /// </list>
+    /// 这样两个页签看到的是<b>同一份事实</b>，不会出现"软件页说还装着、残留页说已被卸载"的自相矛盾。
+    /// </summary>
+    public LeftoversViewModel Leftovers { get; }
 
     public ObservableCollection<SoftwareItemViewModel> Profiles { get; } = [];
 
