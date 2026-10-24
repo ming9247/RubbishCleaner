@@ -231,7 +231,7 @@
           <Image Source="/app.ico" Width="22" Height="22" VerticalAlignment="Center"
                  RenderOptions.BitmapScalingMode="HighQuality" />
           <TextBlock Text="RubbishCleaner" Style="{StaticResource TitleText}" Margin="8,0,0,0" />
-          <TextBlock Text="v0.1.4" Style="{StaticResource SecondaryText}" Margin="8,4,0,0" />
+          <TextBlock Text="v0.2.0" Style="{StaticResource SecondaryText}" Margin="8,4,0,0" />
         </StackPanel>
 
         <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">
@@ -258,13 +258,17 @@
       </Grid>
     </Border>
 
-    <!-- 主体：左侧分组 + 右侧列表 -->
-    <Grid Grid.Row="2" Margin="16">
-      <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="196" />
-        <ColumnDefinition Width="12" />
-        <ColumnDefinition Width="*" />
-      </Grid.ColumnDefinitions>
+    <!-- 主体：两个页签 —— 启动项检测 / 已安装软件 -->
+    <TabControl Grid.Row="2" x:Name="MainTabs" Background="Transparent" BorderThickness="0"
+                Padding="0" Margin="0">
+
+      <TabItem Header="启动项检测">
+        <Grid Margin="16">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="196" />
+            <ColumnDefinition Width="12" />
+            <ColumnDefinition Width="*" />
+          </Grid.ColumnDefinitions>
 
       <!-- 左侧分组与统计 -->
       <Border Grid.Column="0" Style="{StaticResource Card}" VerticalAlignment="Top">
@@ -410,7 +414,157 @@
           </StackPanel>
         </Grid>
       </Border>
-    </Grid>
+
+        </Grid>
+      </TabItem>
+
+      <TabItem Header="已安装软件">
+        <Grid Margin="16">
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+          </Grid.RowDefinitions>
+
+          <!-- 工具条 -->
+          <Border Grid.Row="0" Style="{StaticResource Card}" Margin="0,0,0,12">
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+              </Grid.ColumnDefinitions>
+
+              <Button Grid.Column="0" Content="刷新列表" Style="{StaticResource PrimaryButton}"
+                      Command="{Binding Apps.RefreshCommand}" Margin="0,0,12,0" />
+
+              <TextBox Grid.Column="1" x:Name="AppSearchBox" Margin="0,0,12,0" Padding="6,5"
+                       VerticalContentAlignment="Center"
+                       Text="{Binding Apps.FilterText, UpdateSourceTrigger=PropertyChanged}"
+                       ToolTip="按名称或发行商筛选" />
+
+              <StackPanel Grid.Column="2" Orientation="Horizontal">
+                <TextBlock Text="{Binding Apps.SummaryText}" Style="{StaticResource SecondaryText}"
+                           VerticalAlignment="Center" />
+              </StackPanel>
+            </Grid>
+          </Border>
+
+          <!-- 软件列表 -->
+          <Border Grid.Row="1" Style="{StaticResource Card}" Padding="0">
+            <Grid>
+              <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+              </Grid.RowDefinitions>
+
+              <Border Grid.Row="0" Background="#FAFBFC" BorderBrush="{StaticResource BorderBrush}"
+                      BorderThickness="0,0,0,1" Padding="10,6" CornerRadius="8,8,0,0">
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" MinWidth="180" />
+                    <ColumnDefinition Width="140" />
+                    <ColumnDefinition Width="150" />
+                    <ColumnDefinition Width="80" />
+                    <ColumnDefinition Width="80" />
+                    <ColumnDefinition Width="70" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock Grid.Column="0" Text="软件" Style="{StaticResource SecondaryText}" />
+                  <TextBlock Grid.Column="1" Text="版本" Style="{StaticResource SecondaryText}" />
+                  <TextBlock Grid.Column="2" Text="发行商" Style="{StaticResource SecondaryText}" />
+                  <TextBlock Grid.Column="3" Text="作用域" Style="{StaticResource SecondaryText}" />
+                  <TextBlock Grid.Column="4" Text="架构" Style="{StaticResource SecondaryText}" />
+                  <TextBlock Grid.Column="5" Text="大小" Style="{StaticResource SecondaryText}" />
+                </Grid>
+              </Border>
+
+              <ListBox Grid.Row="1" ItemsSource="{Binding Apps.FilteredApps}"
+                       SelectedItem="{Binding Apps.Selected, Mode=TwoWay}"
+                       BorderThickness="0" Background="Transparent"
+                       ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                       VirtualizingPanel.IsVirtualizing="True"
+                       VirtualizingPanel.VirtualizationMode="Recycling"
+                       MouseDoubleClick="OnAppListDoubleClick">
+                <ListBox.ItemTemplate>
+                  <DataTemplate>
+                    <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="10,7">
+                      <Grid>
+                        <Grid.ColumnDefinitions>
+                          <ColumnDefinition Width="*" MinWidth="180" />
+                          <ColumnDefinition Width="140" />
+                          <ColumnDefinition Width="150" />
+                          <ColumnDefinition Width="80" />
+                          <ColumnDefinition Width="80" />
+                          <ColumnDefinition Width="70" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0" Margin="0,0,8,0">
+                          <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"
+                                       TextTrimming="CharacterEllipsis" />
+                            <Border Background="#FEF3C7" CornerRadius="3" Padding="4,0" Margin="6,0,0,0"
+                                    Visibility="{Binding HasCorruptedText, Converter={StaticResource BoolToVisibility}}">
+                              <TextBlock Text="文本异常" FontSize="10" Foreground="#92400E" />
+                            </Border>
+                            <Border Background="#FEE2E2" CornerRadius="3" Padding="4,0" Margin="6,0,0,0"
+                                    Visibility="{Binding IsBlocked, Converter={StaticResource BoolToVisibility}}"
+                                    ToolTip="{Binding BlockReason}">
+                              <TextBlock Text="卸载程序缺失" FontSize="10" Foreground="#991B1B" />
+                            </Border>
+                          </StackPanel>
+                          <TextBlock Text="{Binding UninstallCommandText}" Style="{StaticResource SecondaryText}"
+                                     TextTrimming="CharacterEllipsis" ToolTip="{Binding UninstallCommandText}" />
+                        </StackPanel>
+
+                        <TextBlock Grid.Column="1" Text="{Binding VersionText}" VerticalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis" />
+                        <TextBlock Grid.Column="2" Text="{Binding Publisher}" VerticalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis" />
+                        <TextBlock Grid.Column="3" Text="{Binding ScopeText}" VerticalAlignment="Center"
+                                   Style="{StaticResource SecondaryText}" />
+                        <TextBlock Grid.Column="4" Text="{Binding ArchText}" VerticalAlignment="Center"
+                                   Style="{StaticResource SecondaryText}" />
+                        <TextBlock Grid.Column="5" Text="{Binding SizeText}" VerticalAlignment="Center"
+                                   Style="{StaticResource SecondaryText}" />
+                      </Grid>
+                    </Border>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+
+              <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center"
+                          Visibility="{Binding Apps.HasLoaded, Converter={StaticResource InverseBoolToVisibility}}">
+                <TextBlock Text="还没有读取软件列表" FontSize="15" HorizontalAlignment="Center"
+                           Foreground="{StaticResource TextSecondaryBrush}" />
+                <TextBlock Text="点击左上角「刷新列表」读取本机已安装的软件" Margin="0,6,0,0"
+                           Style="{StaticResource SecondaryText}" HorizontalAlignment="Center" />
+              </StackPanel>
+            </Grid>
+          </Border>
+
+          <!-- 底部操作条 -->
+          <Border Grid.Row="2" Margin="0,12,0,0" Style="{StaticResource Card}">
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+              </Grid.ColumnDefinitions>
+
+              <StackPanel Grid.Column="0">
+                <TextBlock Text="{Binding Apps.StatusText}" />
+                <TextBlock Text="{Binding Apps.ErrorText}" Foreground="#B45309" FontSize="12"
+                           TextWrapping="Wrap"
+                           Visibility="{Binding Apps.ErrorText, Converter={StaticResource BoolToVisibility}}" />
+              </StackPanel>
+
+              <Button Grid.Column="1" Content="卸载选中的软件"
+                      Background="#FDECEC" BorderBrush="#E8B4B4" Foreground="#B42318"
+                      Command="{Binding Apps.UninstallCommand}"
+                      ToolTip="调用该软件自带的卸载程序；不会强制删除任何文件" />
+            </Grid>
+          </Border>
+        </Grid>
+      </TabItem>
+    </TabControl>
 
     <!-- 底部状态栏 -->
     <Border Grid.Row="3" Background="{StaticResource SurfaceBrush}"

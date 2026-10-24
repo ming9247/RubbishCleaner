@@ -83,6 +83,15 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>双击软件条目 = 直接卸载（与"卸载选中的软件"按钮等价，但仍会二次确认）。</summary>
+    private void OnAppListDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (_viewModel.Apps.UninstallCommand.CanExecute(null))
+        {
+            _viewModel.Apps.UninstallCommand.Execute(null);
+        }
+    }
+
     protected override async void OnContentRendered(EventArgs e)
     {
         base.OnContentRendered(e);

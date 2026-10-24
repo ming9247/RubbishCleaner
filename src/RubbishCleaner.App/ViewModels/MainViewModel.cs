@@ -83,6 +83,9 @@ public sealed class MainViewModel : ObservableObject
         Sort.PropertyChanged += OnSortChanged;
     }
 
+    /// <summary>软件管理页的视图模型（v0.2）。</summary>
+    public AppsViewModel Apps { get; } = new();
+
     public ObservableCollection<SoftwareItemViewModel> Profiles { get; } = [];
 
     public ObservableCollection<SoftwareItemViewModel> FilteredProfiles { get; } = [];
