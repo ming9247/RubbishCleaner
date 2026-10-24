@@ -201,7 +201,7 @@
           <Image Source="/app.ico" Width="22" Height="22" VerticalAlignment="Center"
                  RenderOptions.BitmapScalingMode="HighQuality" />
           <TextBlock Text="RubbishCleaner" Style="{StaticResource TitleText}" Margin="8,0,0,0" />
-          <TextBlock Text="v0.1.2" Style="{StaticResource SecondaryText}" Margin="8,4,0,0" />
+          <TextBlock Text="v0.1.3" Style="{StaticResource SecondaryText}" Margin="8,4,0,0" />
         </StackPanel>
 
         <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">
@@ -251,6 +251,17 @@
           <Button HorizontalContentAlignment="Left" Command="{Binding ShowOrphanCommand}"
                   Content="{Binding OrphanFilterText}"
                   ToolTip="启动项指向的文件已不存在（卸载/升级残留），可以安全清理" />
+
+          <Button HorizontalContentAlignment="Center" Margin="0,6,0,0"
+                  Command="{Binding CleanOrphansCommand}"
+                  Content="清理残留启动项"
+                  ToolTip="先备份为 .reg 文件，再删除这些失效的注册表启动项（只删值，不删键）"
+                  Background="#FDECEC" BorderBrush="#E8B4B4" Foreground="#B42318" />
+
+          <Button HorizontalContentAlignment="Center" Margin="0,6,0,0"
+                  Content="打开备份目录"
+                  Command="{Binding OpenBackupFolderCommand}"
+                  ToolTip="每次清理前都会自动备份，双击 .reg 文件即可还原" />
 
           <Separator Margin="0,12" />
 

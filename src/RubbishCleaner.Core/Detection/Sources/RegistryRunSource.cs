@@ -68,6 +68,9 @@ public sealed class RegistryRunSource : IStartupSource
                     Publisher = signature?.Publisher,
                     IsReadable = true,
                     ReadError = resolved.Note,
+
+                    // 精确坐标：后续"清理残留启动项"靠它定位，而不是解析 Location 字符串。
+                    RegistryAnchor = new RegistryAnchor(_hive, _view, path, value.Name),
                 });
             }
         }

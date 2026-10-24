@@ -40,6 +40,14 @@ public sealed class StartupEntry
     public string? ReadError { get; init; }
 
     /// <summary>
+    /// 注册表坐标（仅 Run / RunOnce 类启动项有值）。
+    ///
+    /// 删除时必须靠这三个字段精确定位，<b>绝不能去解析 <see cref="Location"/> 字符串</b>：
+    /// 字符串格式一旦变动就可能删错键，而注册表删除是不可逆的高危操作。
+    /// </summary>
+    public RegistryAnchor? RegistryAnchor { get; init; }
+
+    /// <summary>
     /// 显式覆盖"目标文件是否存在"的判定结果。
     ///
     /// 仅供测试与离线导入使用：正常扫描时保持为 null，让 <see cref="TargetExists"/> 去查磁盘。

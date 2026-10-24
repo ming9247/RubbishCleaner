@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
 using System.Text;
+using System.Windows;
 using System.Windows.Input;
 using RubbishCleaner.App.Infrastructure;
 using RubbishCleaner.Common.Diagnostics;
@@ -16,6 +17,7 @@ namespace RubbishCleaner.App.ViewModels;
 public sealed class MainViewModel : ObservableObject
 {
     private readonly StartupScanner _scanner;
+    private readonly RubbishCleaner.Core.Cleanup.StartupCleaner _cleaner = new();
     private CancellationTokenSource? _cts;
 
     private bool _isScanning;
@@ -39,6 +41,10 @@ public sealed class MainViewModel : ObservableObject
         IsElevated = _scanner.IsElevated;
         EnvironmentReport = EnvironmentProbe.ToReport(EnvironmentProbe.Capture());
 
+        // 默认用 MessageBox 做确认与提示；测试可替换为可控委托，避免弹窗阻塞。
+        ConfirmHandler = ConfirmWithMessageBox;
+        NotifyHandler = NotifyWithMessageBox;
+
         ScanCommand = new AsyncRelayCommand(ScanAsync, () => !IsScanning)
         {
             OnError = ex =>
@@ -60,6 +66,18 @@ public sealed class MainViewModel : ObservableObject
         ShowSuspiciousCommand = new RelayCommand(() => ApplyFilter(RiskLevel.Suspicious));
         ShowNormalCommand = new RelayCommand(() => ApplyFilter(RiskLevel.Normal));
         ShowOrphanCommand = new RelayCommand(ApplyOrphanFilter, () => OrphanCount > 0);
+
+        // 清理残留启动项：只对失效项生效，且需要用户二次确认。
+        CleanOrphansCommand = new AsyncRelayCommand(CleanOrphansAsync, () => OrphanCount > 0 && !IsScanning)
+        {
+            OnError = ex =>
+            {
+                Log.Error("清理残留启动项失败", ex);
+                ErrorText = $"清理失败：{ex.Message}";
+            },
+        };
+
+        OpenBackupFolderCommand = new RelayCommand(OpenBackupFolder);
         SortCommand = new RelayCommand(SortBy);
 
         Sort.PropertyChanged += OnSortChanged;
@@ -88,6 +106,12 @@ public sealed class MainViewModel : ObservableObject
 
     public ICommand ShowAllCommand { get; }
 
+    /// <summary>清理所有失效启动项（会先备份，再删除）。</summary>
+    public ICommand CleanOrphansCommand { get; }
+
+    /// <summary>打开备份目录。</summary>
+    public ICommand OpenBackupFolderCommand { get; }
+
     public ICommand ShowHighRiskCommand { get; }
 
     public ICommand ShowSuspiciousCommand { get; }
@@ -105,6 +129,21 @@ public sealed class MainViewModel : ObservableObject
 
     /// <summary>表头点击命令，参数为 <see cref="SortColumn"/>。</summary>
     public ICommand SortCommand { get; }
+
+    /// <summary>确认对话框：返回 true 表示用户确认执行。可注入以便测试。</summary>
+    public Func<string, string, bool> ConfirmHandler { get; set; }
+
+    /// <summary>结果提示：可注入以便测试。</summary>
+    public Action<string, string> NotifyHandler { get; set; }
+
+    /// <summary>上次清理的备份文件路径（供 UI 提示"可还原"）。</summary>
+    public string? LastBackupPath { get; private set; }
+
+    /// <summary>备份目录：放在 LocalAppData 下，避免污染用户桌面。</summary>
+    public static string BackupDirectory => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "RubbishCleaner",
+        "backups");
 
     public bool IsElevated { get; }
 
@@ -332,6 +371,85 @@ public sealed class MainViewModel : ObservableObject
             : "没有发现失效的启动项";
     }
 
+    /// <summary>
+    /// 清理所有失效启动项。
+    ///
+    /// 安全设计：<b>先备份，备份失败就不删</b>。
+    /// 备份是一个可双击还原的 .reg 文件，放在 LocalAppData\RubbishCleaner\backups。
+    /// </summary>
+    private async Task CleanOrphansAsync()
+    {
+        var plan = _cleaner.BuildPlan(Profiles.Select(p => p.Profile));
+
+        if (plan.IsEmpty)
+        {
+            NotifyHandler("没有可清理的项",
+                plan.Skipped.Count > 0
+                    ? "发现失效启动项，但不属于可自动清理的类型：\n\n"
+                      + string.Join('\n', plan.Skipped.Select(s => $"· {s.EntryName}：{s.Reason}"))
+                    : "当前没有失效的启动项。");
+            return;
+        }
+
+        // 二次确认：把"要删什么"逐条摆出来，而不是只给一个总数。
+        var detail = string.Join('\n', plan.Targets.Select(t => $"· {t.Anchor.FullPath}"));
+        var message =
+            $"即将删除以下 {plan.Count} 条失效启动项：\n\n{detail}\n\n" +
+            "这些启动项指向的文件已不存在，删除后不会再被开机加载。\n" +
+            "删除前会自动备份到本地，可随时还原。";
+
+        if (!ConfirmHandler("确认清理残留启动项", message))
+        {
+            StatusText = "已取消清理";
+            return;
+        }
+
+        // 备份：失败就中止，绝不裸删。
+        string backupPath;
+        try
+        {
+            backupPath = _cleaner.WriteBackup(plan, BackupDirectory, DateTime.Now);
+            LastBackupPath = backupPath;
+            Log.Info($"启动项备份已生成：{backupPath}");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("生成启动项备份失败，已中止清理", ex);
+            NotifyHandler("无法备份，已取消清理",
+                $"生成备份文件失败，为了安全没有执行任何删除：\n\n{ex.Message}");
+            ErrorText = "备份失败，已取消清理（未修改注册表）";
+            return;
+        }
+
+        var results = _cleaner.Execute(plan);
+        var ok = results.Count(r => r.Success);
+        var failed = results.Where(r => !r.Success).ToList();
+
+        foreach (var result in results)
+        {
+            Log.Info($"清理 {result.Target.Anchor.FullPath}：{(result.Success ? "成功" : "失败 - " + result.Message)}");
+        }
+
+        StatusText = failed.Count == 0
+            ? $"已清理 {ok} 条失效启动项，备份：{Path.GetFileName(backupPath)}"
+            : $"清理完成：成功 {ok} 条，失败 {failed.Count} 条";
+
+        if (failed.Count > 0)
+        {
+            NotifyHandler("部分项清理失败",
+                string.Join('\n', failed.Select(f => $"· {f.Target.EntryName}：{f.Message}"))
+                + $"\n\n备份文件：\n{backupPath}");
+        }
+        else
+        {
+            NotifyHandler("清理完成",
+                $"已删除 {ok} 条失效启动项。\n\n备份文件（双击可还原）：\n{backupPath}");
+        }
+
+        // 重新扫描，让界面反映真实状态
+        await ScanAsync();
+    }
+
     /// <summary>按当前筛选条件重建可见列表，并套用排序。</summary>
     private void RebuildFilteredList()
     {
@@ -381,6 +499,22 @@ public sealed class MainViewModel : ObservableObject
         }
 
         System.Windows.Application.Current.Shutdown();
+    }
+
+    private void OpenBackupFolder()
+    {
+        try
+        {
+            Directory.CreateDirectory(BackupDirectory);
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(BackupDirectory)
+            {
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            ErrorText = $"无法打开备份目录：{ex.Message}";
+        }
     }
 
     private void OpenLogFolder()
@@ -463,4 +597,15 @@ public sealed class MainViewModel : ObservableObject
             Log.Error("导出报告失败", ex);
         }
     }
+
+    /// <summary>
+    /// 默认确认对话框。抽成方法而不是内联，是为了让测试能用委托替换掉它——
+    /// 否则任何清理测试都会卡在模态弹窗上。
+    /// </summary>
+    private static bool ConfirmWithMessageBox(string title, string message)
+        => MessageBox.Show(message, title, MessageBoxButton.OKCancel, MessageBoxImage.Warning,
+               MessageBoxResult.Cancel) == MessageBoxResult.OK;
+
+    private static void NotifyWithMessageBox(string title, string message)
+        => MessageBox.Show(message, title, MessageBoxButton.OK, MessageBoxImage.Information);
 }
