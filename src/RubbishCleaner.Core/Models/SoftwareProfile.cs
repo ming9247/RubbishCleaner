@@ -43,6 +43,17 @@ public sealed class SoftwareProfile
     public bool IsRunning => LiveProcess?.IsRunning == true;
 
     /// <summary>
+    /// 所有自启动点的目标文件都已不存在 → 这条记录是<b>卸载/升级残留</b>。
+    /// 典型来源：软件升级换目录后，旧路径的 Run 项没有被清掉（实测：某软件国内版装到新目录，
+    /// 两条指向旧路径的 Run 项仍留在注册表里）。
+    /// </summary>
+    public bool IsOrphaned => StartupEntries.Count > 0
+        && StartupEntries.All(e => e.IsOrphan);
+
+    /// <summary>失效的启动项（用于列表展示"有 N 条残留"）。</summary>
+    public IReadOnlyList<StartupEntry> OrphanEntries => StartupEntries.Where(e => e.IsOrphan).ToList();
+
+    /// <summary>
     /// 是否为"纯服务型"程序：所有自启动点都是 Windows 服务。
     /// 服务按设计就没有窗口、桌面图标与开始菜单入口，若照常计分会把
     /// NVIDIA / Intel / Autodesk 这类正规驱动服务全部推成高风险（实测踩过）。

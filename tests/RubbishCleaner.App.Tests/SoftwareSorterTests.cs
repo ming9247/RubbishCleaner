@@ -27,6 +27,7 @@ public class SoftwareSorterTests
                     Name = name,
                     Location = @"HKCU\Run",
                     ExecutablePath = $@"C:\Apps\{name}.exe",
+                    TargetExistsOverride = true,
                 },
             ],
             LiveProcess = new ProcessFacts(

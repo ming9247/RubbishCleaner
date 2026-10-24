@@ -248,18 +248,27 @@ public sealed class StartupScanner
                 : Evidence.Critical("TRUST_BLACKLIST", profile.TrustReason));
         }
 
+        // 失效启动项：把具体路径与注册表位置告诉用户，让他能直接去清理。
+        foreach (var orphan in profile.OrphanEntries)
+        {
+            list.Add(Evidence.Warning(
+                "ORPHAN_STARTUP",
+                $"启动项「{orphan.Name}」指向的文件已不存在：{orphan.ExecutablePath}（位于 {orphan.Location}）"));
+        }
+
         if (profile.LiveProcess is { IsRunning: true } facts)
         {
             list.Add(Evidence.Info(
                 "PROCESS_RUNNING",
                 $"进程运行中（PID {facts.ProcessId}），可见窗口：{(facts.HasVisibleWindow ? "有" : "无")}，任务栏按钮：{(facts.HasTaskbarButton ? "有" : "无")}"));
         }
-        else
+        else if (!profile.IsOrphaned)
         {
+            // 失效启动项谈不上"未运行"，否则会与上面的残留提示重复且误导。
             list.Add(Evidence.Info("PROCESS_NOT_RUNNING", "进程当前未运行"));
         }
 
-        if (profile.LiveProcess is { SignatureValid: false })
+        if (profile.LiveProcess is { SignatureValid: false } && !profile.IsOrphaned)
         {
             list.Add(Evidence.Warning("SIGNATURE_MISSING", "未找到有效的数字签名"));
         }

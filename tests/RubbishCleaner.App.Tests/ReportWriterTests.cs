@@ -28,6 +28,7 @@ public class ReportWriterTests
                     Name = name,
                     Location = @"HKCU\Run",
                     ExecutablePath = path,
+                    TargetExistsOverride = true,
                 },
             ],
             LiveProcess = new ProcessFacts(1, name, path, running, false, false, true, false, null, publisher, null),

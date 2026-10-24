@@ -90,6 +90,7 @@ public class StartupScannerTests
             Location = @"HKCU\Run",
             RawCommand = path,
             ExecutablePath = path,
+            TargetExistsOverride = true,
         };
 
     private static StartupScanner CreateScanner(

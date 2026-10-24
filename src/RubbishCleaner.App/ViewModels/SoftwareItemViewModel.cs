@@ -64,6 +64,38 @@ public sealed class SoftwareItemViewModel : ObservableObject
 
     public string RunningText => IsRunning ? "运行中" : "未运行";
 
+    // ---------------- 失效启动项（残留） ----------------
+
+    /// <summary>该软件的启动项是否全部失效（目标文件已不存在）。</summary>
+    public bool IsOrphaned => Profile.IsOrphaned;
+
+    /// <summary>失效启动项条数（含部分失效的情况）。</summary>
+    public int OrphanCount => Profile.OrphanEntries.Count;
+
+    /// <summary>
+    /// 状态列文案。
+    /// 失效项优先显示"残留"——它比"未运行"更有信息量，也直接告诉用户该清理。
+    /// </summary>
+    public string StateText
+    {
+        get
+        {
+            if (OrphanCount == 0)
+            {
+                return RunningText;
+            }
+
+            return OrphanCount >= Profile.StartupEntries.Count
+                ? "启动项已失效"
+                : $"{OrphanCount} 条启动项失效";
+        }
+    }
+
+    /// <summary>失效启动项的路径清单，供详情面板与报告使用。</summary>
+    public IReadOnlyList<string> OrphanPaths => Profile.OrphanEntries
+        .Select(e => e.ExecutablePath ?? e.RawCommand ?? "（未知路径）")
+        .ToList();
+
     public string HitSummary => $"{Profile.Score.HitCount}/{Profile.Score.RuleCount} 条规则命中";
 
     public IReadOnlyList<EvidenceItemViewModel> Evidences { get; }

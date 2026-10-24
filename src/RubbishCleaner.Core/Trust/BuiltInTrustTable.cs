@@ -18,6 +18,12 @@ public static class BuiltInTrustTable
         [
             new TrustRule(TrustRuleType.Signer, "Microsoft Corporation", "微软签名"),
             new TrustRule(TrustRuleType.Signer, "Microsoft Windows", "Windows 组件"),
+
+            // 已知正规厂商。产品文档 §7.1.4 明确要求"知名厂商签名 → 直接标安全"。
+            // Autodesk：AdskAccessService 等是无界面的自启动云服务，
+            // 天然没有桌面/开始菜单入口，照启发式打分会稳定误报（实测 60 分"疑似"）。
+            new TrustRule(TrustRuleType.Signer, "Autodesk", "Autodesk 正规厂商签名"),
+
             new TrustRule(TrustRuleType.Path, @"%SystemRoot%\System32\", "系统目录"),
             new TrustRule(TrustRuleType.Path, @"%SystemRoot%\SysWOW64\", "系统目录（32 位）"),
             new TrustRule(TrustRuleType.Path, @"%SystemRoot%\explorer.exe", "资源管理器"),

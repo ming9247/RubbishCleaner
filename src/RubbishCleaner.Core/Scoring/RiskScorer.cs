@@ -20,6 +20,14 @@ public sealed class ScoringWeights
 
     public int Masquerade { get; init; } = 10;
 
+    /// <summary>
+    /// 失效启动项（目标文件已不存在）。
+    /// 权重为 0：它不是"风险"，而是"残留"——程序已经不在了，没有在跑，
+    /// 也不会再影响系统。给它加分只会制造噪声。它的价值在于被<b>单独标记出来供清理</b>，
+    /// 见 <see cref="SoftwareProfile.IsOrphaned"/>。
+    /// </summary>
+    public int OrphanStartup { get; init; } = 0;
+
     public int SuspiciousThreshold { get; init; } = 41;
 
     public int HighRiskThreshold { get; init; } = 71;
@@ -39,6 +47,7 @@ public sealed class RiskScorer
     public const string RuleNoTray = "NO_TRAY";
     public const string RuleUnsigned = "UNSIGNED";
     public const string RuleMasquerade = "MASQUERADE";
+    public const string RuleOrphanStartup = "ORPHAN_STARTUP";
 
     private readonly ScoringWeights _weights;
 
@@ -49,13 +58,19 @@ public sealed class RiskScorer
     {
         ArgumentNullException.ThrowIfNull(profile);
 
-        var items = new List<ScoreItem>(7);
+        var items = new List<ScoreItem>(8);
         var process = profile.LiveProcess;
         var isRunning = process?.IsRunning == true;
 
         // 纯服务型程序（只通过 Windows 服务自启动）不参与"无窗口 / 无桌面图标 / 无开始菜单"三项：
         // 这三项对服务而言是设计使然，计分只会把正规驱动服务误判为高风险。
         var serviceOnly = profile.IsServiceOnly;
+
+        // 失效启动项：目标文件已不存在，属于卸载/升级残留。
+        // 这类记录不能套用针对"活着的程序"的规则——
+        // 程序根本不存在，"未签名""无窗口""无图标"全都是伪信号，只会把它推成假的高风险，
+        // 从而掩盖真正的信息："这条该清理"。
+        var orphan = profile.IsOrphaned;
 
         // 1) 自启动：本工具的输入本身就是自启动项，因此几乎必然命中；保留规则是为了报告可读性。
         Add(items, RuleAutostart, "存在自启动项", _weights.Autostart, profile.StartupEntries.Count > 0);
@@ -64,27 +79,31 @@ public sealed class RiskScorer
         //    未运行时标记为"不适用"，而不是"未命中"——否则会把"无法判断"错算成"已排除嫌疑"。
         var noVisibleWindow = isRunning && !process!.HasVisibleWindow;
         Add(items, RuleNoVisibleWindow, "后台常驻且无可见窗口", _weights.NoVisibleWindow, noVisibleWindow,
-            notApplicable: !isRunning || serviceOnly);
+            notApplicable: !isRunning || serviceOnly || orphan);
 
         // 3) 无桌面图标
         Add(items, RuleNoDesktopIcon, "桌面无快捷方式", _weights.NoDesktopIcon,
-            !profile.HasDesktopShortcut, notApplicable: serviceOnly);
+            !profile.HasDesktopShortcut, notApplicable: serviceOnly || orphan);
 
         // 4) 无开始菜单项
         Add(items, RuleNoStartMenu, "开始菜单无入口", _weights.NoStartMenu,
-            !profile.HasStartMenuEntry, notApplicable: serviceOnly);
+            !profile.HasStartMenuEntry, notApplicable: serviceOnly || orphan);
 
         // 5) 无托盘图标：v0.1 无法可靠判定，标记为"不适用"，避免误伤（ADR-003）。
         Add(items, RuleNoTray, "无托盘图标（暂无法判定）", _weights.NoTray, false, notApplicable: true);
 
-        // 6) 未签名 / 发行商未知
-        var unsigned = process is null || !process.SignatureValid;
-        Add(items, RuleUnsigned, "数字签名缺失或发行商未知", _weights.Unsigned, unsigned);
+        // 6) 未签名 / 发行商未知。文件已不存在时无从校验签名，不能算作"未签名"。
+        var unsigned = !orphan && (process is null || !process.SignatureValid);
+        Add(items, RuleUnsigned, "数字签名缺失或发行商未知", _weights.Unsigned, unsigned, notApplicable: orphan);
 
         // 7) 进程名伪装系统进程
         var nameForCheck = process?.ProcessName ?? Path.GetFileNameWithoutExtension(profile.ExecutablePath ?? profile.DisplayName);
         var masquerade = NameSimilarity.LooksMasquerading(nameForCheck, out var matched);
         Add(items, RuleMasquerade, $"进程名伪装系统进程{FormatMatched(matched)}", _weights.Masquerade, masquerade);
+
+        // 8) 失效启动项：权重 0（见 ScoringWeights.OrphanStartup）。
+        //    不计分，但要让 UI 与报告能明确告诉用户"这条该清理"。
+        Add(items, RuleOrphanStartup, "启动项目标文件已不存在（可清理）", _weights.OrphanStartup, orphan);
 
         var raw = items.Sum(i => i.Contribution);
         var total = Math.Clamp(raw, 0, 100);

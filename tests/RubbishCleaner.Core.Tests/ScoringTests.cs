@@ -81,6 +81,7 @@ public class RiskScorerTests
                     Name = $"entry{i}",
                     Location = @"HKCU\Run",
                     ExecutablePath = path,
+                    TargetExistsOverride = true,
                 })
                 .ToList(),
             LiveProcess = facts,
@@ -187,6 +188,7 @@ public class RiskScorerTests
                     Name = "NvContainerLocalSystem",
                     Location = @"HKLM\SYSTEM\CurrentControlSet\Services",
                     ExecutablePath = @"C:\Program Files\NVIDIA\nvcontainer.exe",
+                    TargetExistsOverride = true,
                 },
             ],
             LiveProcess = profile.LiveProcess,
@@ -220,6 +222,7 @@ public class RiskScorerTests
                     Name = "SomeService",
                     Location = @"HKLM\SYSTEM\CurrentControlSet\Services",
                     ExecutablePath = @"C:\Program Files\Vendor\svc.exe",
+                    TargetExistsOverride = true,
                 },
             ],
             LiveProcess = new ProcessFacts(
@@ -237,8 +240,97 @@ public class RiskScorerTests
     {
         var score = new RiskScorer().Score(CreateProfile());
 
-        // 全部 7 条规则都保留，便于 UI 展示"命中 x/y"
-        Assert.Equal(7, score.Items.Count);
+        // 全部 8 条规则都保留，便于 UI 展示"命中 x/y"
+        Assert.Equal(8, score.Items.Count);
         Assert.Contains(score.Items, i => i.RuleId == RiskScorer.RuleNoTray && !i.Hit && i.NotApplicable);
+        Assert.Contains(score.Items, i => i.RuleId == RiskScorer.RuleOrphanStartup);
+    }
+
+    // ---------------- 失效启动项（残留） ----------------
+
+    [Fact]
+    public void Score_OrphanedEntry_DoesNotCountProgramRules()
+    {
+        // 目标文件已不存在的启动项：不能套用"未签名/无窗口/无图标"这些针对活程序规则，
+        // 否则会把一条该清理的残留推成假的高风险。
+        var profile = new SoftwareProfile
+        {
+            Key = "ghost",
+            DisplayName = "ghost",
+            ExecutablePath = @"D:\Old\Ghost\ghost.exe",
+            StartupEntries =
+            [
+                new StartupEntry
+                {
+                    Id = "ghost",
+                    Source = StartupSourceKind.RegistryRunHkcu,
+                    Name = "Ghost",
+                    Location = @"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+                    ExecutablePath = @"D:\Old\Ghost\ghost.exe",
+                    TargetExistsOverride = false,
+                },
+            ],
+            LiveProcess = ProcessFacts.NotRunning("ghost", @"D:\Old\Ghost\ghost.exe"),
+        };
+
+        var score = new RiskScorer().Score(profile);
+
+        Assert.True(profile.IsOrphaned);
+        // 只剩 AUTOSTART 计分，其余全部"不适用"
+        Assert.Equal(30, score.Total);
+        Assert.Equal(RiskLevel.Normal, score.Level);
+
+        var orphanRule = score.Items.Single(i => i.RuleId == RiskScorer.RuleOrphanStartup);
+        Assert.True(orphanRule.Hit);
+        Assert.Equal(0, orphanRule.Contribution);   // 残留不计分，只做标记
+    }
+
+    [Fact]
+    public void Score_PartiallyOrphaned_StillEvaluatesLiveProgram()
+    {
+        // 一个启动点失效、另一个有效：说明程序还在，应按活程序正常评分
+        var profile = new SoftwareProfile
+        {
+            Key = "mixed",
+            DisplayName = "mixed",
+            ExecutablePath = @"C:\Apps\mixed.exe",
+            StartupEntries =
+            [
+                new StartupEntry
+                {
+                    Id = "old", Source = StartupSourceKind.RegistryRunHkcu, Name = "Mixed(old)",
+                    Location = @"HKCU\Run", ExecutablePath = @"D:\Old\mixed.exe",
+                    TargetExistsOverride = false,
+                },
+                new StartupEntry
+                {
+                    Id = "new", Source = StartupSourceKind.RegistryRunHkcu, Name = "Mixed",
+                    Location = @"HKCU\Run", ExecutablePath = @"C:\Apps\mixed.exe",
+                    TargetExistsOverride = true,
+                },
+            ],
+            LiveProcess = new ProcessFacts(1, "mixed", @"C:\Apps\mixed.exe", true, false, false, false, false, null, null, null),
+        };
+
+        var score = new RiskScorer().Score(profile);
+
+        Assert.False(profile.IsOrphaned);
+        Assert.Single(profile.OrphanEntries);
+        Assert.True(score.Total > 30);   // 未签名 + 无窗口等都参与计分
+    }
+
+    [Theory]
+    [InlineData(null, false)]                              // 无法解析路径 → 不判失效
+    [InlineData("ghost.exe", false)]                        // 相对路径 → 不判失效
+    [InlineData(@"\\nonexistent-host\share\a.exe", true)]   // UNC 绝对路径且不存在 → 判失效
+    public void TargetExists_RelativeOrUnparseablePath_IsNotOrphan(string? path, bool expectOrphan)
+    {
+        var entry = new StartupEntry
+        {
+            Id = "x", Source = StartupSourceKind.ScheduledTask, Name = "x",
+            Location = @"C:\Windows\System32\Tasks", ExecutablePath = path,
+        };
+
+        Assert.Equal(expectOrphan, entry.IsOrphan);
     }
 }

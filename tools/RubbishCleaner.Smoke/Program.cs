@@ -64,8 +64,12 @@ internal static class Program
 
     private static void PrintHuman(ScanResult result, int top)
     {
+        var orphanEntries = result.Profiles.Sum(p => p.OrphanEntries.Count);
+        var orphanProfiles = result.Profiles.Count(p => p.OrphanEntries.Count > 0);
+
         Console.WriteLine($"扫描完成：{result.Profiles.Count} 个程序，{result.TotalStartupEntries} 个自启动点，用时 {result.Duration.TotalMilliseconds:F0} ms");
         Console.WriteLine($"高风险 {result.HighRiskCount} · 疑似 {result.SuspiciousCount} · 正常 {result.NormalCount}");
+        Console.WriteLine($"残留启动项：{orphanEntries} 条（涉及 {orphanProfiles} 个程序，目标文件已不存在）");
         Console.WriteLine($"权限：{(result.IsElevated ? "管理员" : "标准用户")}");
 
         if (result.DegradedSources.Count > 0)
@@ -75,6 +79,21 @@ internal static class Program
             foreach (var source in result.DegradedSources)
             {
                 Console.WriteLine($"  - {source.Kind.ToDisplayName()}：{source.Error}");
+            }
+        }
+
+        // 残留单独列出来：这是本工具最直接的"可操作项"。
+        var orphans = result.Profiles.Where(p => p.OrphanEntries.Count > 0).ToList();
+        if (orphans.Count > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("失效启动项（可清理）：");
+            foreach (var profile in orphans)
+            {
+                foreach (var entry in profile.OrphanEntries)
+                {
+                    Console.WriteLine($"  · [{entry.Source.ToDisplayName()}] {entry.Name} -> {entry.ExecutablePath ?? entry.RawCommand}");
+                }
             }
         }
 
@@ -105,10 +124,12 @@ internal static class Program
         sb.Append($"\"suspicious\":{result.SuspiciousCount},");
         sb.Append($"\"normal\":{result.NormalCount},");
         sb.Append($"\"startupEntries\":{result.TotalStartupEntries},");
+        sb.Append($"\"orphanEntries\":{result.Profiles.Sum(p => p.OrphanEntries.Count)},");
         sb.Append("\"profiles\":[");
         sb.Append(string.Join(',', result.Profiles.Select(p =>
             $"{{\"name\":\"{Escape(p.DisplayName)}\",\"score\":{p.Score.Total},\"level\":\"{p.Score.Level}\"," +
             $"\"trust\":\"{p.Trust}\",\"running\":{p.IsRunning.ToString().ToLowerInvariant()}," +
+            $"\"orphans\":{p.OrphanEntries.Count}," +
             $"\"sources\":[{string.Join(',', p.StartupEntries.Select(e => $"\"{e.Source}\"").Distinct())}]}}")));
         sb.Append("]}");
         Console.WriteLine(sb.ToString());

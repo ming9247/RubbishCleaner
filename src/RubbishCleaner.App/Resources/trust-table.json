@@ -1,10 +1,21 @@
 {
-  "version": 1,
-  "updated": "2026-10-23",
+  "version": 2,
+  "updated": "2026-10-24",
   "whitelist": [
     { "type": "signer", "value": "Microsoft Corporation", "note": "微软签名" },
     { "type": "signer", "value": "Microsoft Windows", "note": "Windows 组件" },
     { "type": "signer", "value": "Microsoft® Windows® Operating System", "note": "Windows 组件" },
+
+    { "type": "signer", "value": "Autodesk", "note": "Autodesk 正规厂商签名（AdskAccessService 等无界面自启动云服务）" },
+    { "type": "signer", "value": "Tencent Technology", "note": "腾讯正规厂商签名" },
+    { "type": "signer", "value": "ByteDance", "note": "字节跳动正规厂商签名" },
+    { "type": "signer", "value": "NVIDIA Corporation", "note": "NVIDIA 正规厂商签名" },
+    { "type": "signer", "value": "Intel Corporation", "note": "Intel 正规厂商签名" },
+    { "type": "signer", "value": "Realtek Semiconductor", "note": "Realtek 正规厂商签名" },
+    { "type": "signer", "value": "Adobe Inc.", "note": "Adobe 正规厂商签名" },
+    { "type": "signer", "value": "Mozilla Corporation", "note": "Mozilla 正规厂商签名" },
+    { "type": "signer", "value": "Oracle America", "note": "Oracle 正规厂商签名" },
+
     { "type": "path", "value": "%SystemRoot%\\System32\\", "note": "系统目录" },
     { "type": "path", "value": "%SystemRoot%\\SysWOW64\\", "note": "系统目录（32 位）" },
     { "type": "path", "value": "%SystemRoot%\\explorer.exe", "note": "资源管理器" },

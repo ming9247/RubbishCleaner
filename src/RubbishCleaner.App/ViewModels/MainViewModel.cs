@@ -25,6 +25,7 @@ public sealed class MainViewModel : ObservableObject
     private bool _hasScanned;
     private string? _errorText;
     private RiskLevel? _filterLevel;
+    private bool _filterOrphanOnly;
     private SoftwareItemViewModel? _selected;
     private string _environmentReport = string.Empty;
     private string _durationText = string.Empty;
@@ -58,7 +59,7 @@ public sealed class MainViewModel : ObservableObject
         ShowHighRiskCommand = new RelayCommand(() => ApplyFilter(RiskLevel.HighRisk));
         ShowSuspiciousCommand = new RelayCommand(() => ApplyFilter(RiskLevel.Suspicious));
         ShowNormalCommand = new RelayCommand(() => ApplyFilter(RiskLevel.Normal));
-
+        ShowOrphanCommand = new RelayCommand(ApplyOrphanFilter, () => OrphanCount > 0);
         SortCommand = new RelayCommand(SortBy);
 
         Sort.PropertyChanged += OnSortChanged;
@@ -92,6 +93,15 @@ public sealed class MainViewModel : ObservableObject
     public ICommand ShowSuspiciousCommand { get; }
 
     public ICommand ShowNormalCommand { get; }
+
+    /// <summary>「仅看残留」筛选命令。</summary>
+    public ICommand ShowOrphanCommand { get; }
+
+    /// <summary>失效启动项总数（用于按钮文案与可用性）。</summary>
+    public int OrphanCount => Profiles.Sum(p => p.OrphanCount);
+
+    /// <summary>「清理」分组按钮文案，带实时计数。</summary>
+    public string OrphanFilterText => OrphanCount > 0 ? $"残留启动项（{OrphanCount}）" : "残留启动项";
 
     /// <summary>表头点击命令，参数为 <see cref="SortColumn"/>。</summary>
     public ICommand SortCommand { get; }
@@ -226,11 +236,16 @@ public sealed class MainViewModel : ObservableObject
             HasScanned = true;
 
             DurationText = $"{result.Duration.TotalSeconds:F1}s";
-            CountsText = $"共 {result.Profiles.Count} 项 · 高风险 {result.HighRiskCount} · 疑似 {result.SuspiciousCount} · 正常 {result.NormalCount} · 启动点 {result.TotalStartupEntries}";
+
+            var orphanCount = Profiles.Sum(p => p.OrphanCount);
+            CountsText = $"共 {result.Profiles.Count} 项 · 高风险 {result.HighRiskCount} · 疑似 {result.SuspiciousCount} · 正常 {result.NormalCount} · 启动点 {result.TotalStartupEntries}"
+                         + (orphanCount > 0 ? $" · 残留 {orphanCount}" : string.Empty);
 
             StatusText = result.DegradedSources.Count > 0
                 ? $"扫描完成，但有 {result.DegradedSources.Count} 个数据源不完整"
-                : "扫描完成";
+                : orphanCount > 0
+                    ? $"扫描完成，发现 {orphanCount} 条失效启动项（可清理）"
+                    : "扫描完成";
 
             if (result.DegradedSources.Count > 0)
             {
@@ -240,8 +255,15 @@ public sealed class MainViewModel : ObservableObject
             OnPropertyChanged(nameof(HighRiskCount));
             OnPropertyChanged(nameof(SuspiciousCount));
             OnPropertyChanged(nameof(NormalCount));
+            OnPropertyChanged(nameof(OrphanCount));
+            OnPropertyChanged(nameof(OrphanFilterText));
+
+            // RelayCommand 的 CanExecute 依赖 OrphanCount，扫描前它是 0（按钮禁用），
+            // 扫描后必须强制重新求值，否则按钮会一直灰着（实测踩过）。
+            CommandManager.InvalidateRequerySuggested();
+
             StageText = string.Empty;
-            Log.Info($"扫描完成：{result.Profiles.Count} 项，用时 {result.Duration.TotalMilliseconds:F0}ms");
+            Log.Info($"扫描完成：{result.Profiles.Count} 项，残留 {orphanCount} 条，用时 {result.Duration.TotalMilliseconds:F0}ms");
         }
         catch (OperationCanceledException)
         {
@@ -290,17 +312,43 @@ public sealed class MainViewModel : ObservableObject
     private void ApplyFilter(RiskLevel? level)
     {
         _filterLevel = level;
-        FilteredProfiles.Clear();
-        foreach (var profile in Profiles.Where(p => level is null || p.Level == level))
-        {
-            FilteredProfiles.Add(profile);
-        }
-
-        ApplySorting();
+        _filterOrphanOnly = false;
+        RebuildFilteredList();
 
         StatusText = level is null
             ? "显示全部"
             : $"仅显示「{level.Value.ToDisplayName()}」";
+    }
+
+    /// <summary>只看启动项失效的残留记录。</summary>
+    private void ApplyOrphanFilter()
+    {
+        _filterLevel = null;
+        _filterOrphanOnly = true;
+        RebuildFilteredList();
+
+        StatusText = OrphanCount > 0
+            ? $"仅显示残留启动项（{OrphanCount} 条），可安全清理"
+            : "没有发现失效的启动项";
+    }
+
+    /// <summary>按当前筛选条件重建可见列表，并套用排序。</summary>
+    private void RebuildFilteredList()
+    {
+        FilteredProfiles.Clear();
+
+        foreach (var profile in Profiles)
+        {
+            var matchesLevel = _filterLevel is null || profile.Level == _filterLevel;
+            var matchesOrphan = !_filterOrphanOnly || profile.OrphanCount > 0;
+
+            if (matchesLevel && matchesOrphan)
+            {
+                FilteredProfiles.Add(profile);
+            }
+        }
+
+        ApplySorting();
     }
 
     /// <summary>按当前 <see cref="Sort"/> 状态对可见列表排序。</summary>
