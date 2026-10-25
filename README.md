@@ -32,8 +32,12 @@
 # 无界面冒烟扫描（不需要管理员，只读）
 dotnet run --project tools/RubbishCleaner.Smoke
 
-# 注册表清理的真机 E2E（造一个孤儿条目 → 扫描 → 备份 → 删键 → 还原 → 现场清理）
-.\scripts\e2e-registry.ps1
+# 注册表清理的真机验证（三种模式，默认全跑）
+#   e2e    造孤儿 → 扫描 → 备份 → 删键 → reg import 还原 → 现场清理（不需要管理员）
+#   views  32 位视图 / 三上下文实测（只读）
+#   e2e32  HKLM 32 位视图真实往返（会自己请求提权；拿不到权限就跳过，不算失败）
+.\scripts\e2e-registry.ps1              # 等价于 -Mode all
+.\scripts\e2e-registry.ps1 -Mode views  # 只跑只读实测
 
 # 运行主程序
 #   注意：app.manifest 是 requireAdministrator，所以**不能**用 dotnet run 启动
@@ -238,7 +242,7 @@ Rubbish-cleaner/
 │   └── RubbishCleaner.App.Tests/  # 排序 / 导出 / ViewModel / 注册表交互（130 项）
 ├── tools/
 │   ├── RubbishCleaner.Smoke/      # 无界面冒烟验证工具
-│   └── RubbishCleaner.RegE2E/     # 注册表清理真机 E2E 探针（造孤儿 → 删 → reg import 还原）
+│   └── RubbishCleaner.RegE2E/     # 注册表清理真机探针（e2e 全链路 / views 视图实测 / e2e32 32 位往返）
 ├── docs/
 │   ├── planning/                  # 产品文档
 │   ├── technical/                 # 技术设计文档（含 ADR）

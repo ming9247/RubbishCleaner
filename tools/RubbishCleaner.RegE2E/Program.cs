@@ -1,19 +1,44 @@
-// Lead 侧 E2E 探针：验证 v0.4 注册表清理全链路（不依赖 WPF，不碰任何真实软件键）
-// 用法：dotnet run --project tools/RubbishCleaner.RegE2E -- e2e
+// v0.4 注册表清理的真机探针（不依赖 WPF，不碰任何真实软件键）
+//
+// 两个模式：
+//   e2e   —— 全链路：造孤儿条目 → 扫描 → 计划 → 备份 → 删键 → reg import 还原 → 现场清理
+//   views —— 32 位视图 / 三上下文实测（只读）：条目统计、两视图差集、HKCU 重定向、备份路径
+//
+// 用法：
+//   dotnet run --project tools/RubbishCleaner.RegE2E -- e2e
+//   dotnet run --project tools/RubbishCleaner.RegE2E -- views
 using System.Diagnostics;
 using Microsoft.Win32;
 using RubbishCleaner.Core.RegistryCleanup;
+
+Console.OutputEncoding = System.Text.Encoding.UTF8;
+
+// 模式分发：默认跑 e2e，保持既有脚本与习惯不变
+var mode = args.Length > 0 ? args[0].Trim().ToLowerInvariant() : "e2e";
+if (mode is "views" or "view" or "32")
+{
+    return await ViewProbe.RunAsync();
+}
+
+if (mode is "e2e32" or "32bit")
+{
+    return await E2E32.RunAsync();
+}
+
+if (mode is not ("e2e" or "all"))
+{
+    Console.WriteLine($"未知模式：{mode}（可用：e2e / e2e32 / views）");
+    return 2;
+}
 
 const string TestGuid = "{DEADBEEF-1111-2222-3333-444455556666}";
 const string TestName = "RC E2E 孤儿样本";
 const string UninstallRoot = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall";
 
-Console.OutputEncoding = System.Text.Encoding.UTF8;
-
 var view = RegistryView.Registry64;
 var targetPath = $@"{UninstallRoot}\{TestGuid}";
 
-// 机器级写不了就退回 HKCU（本机以标准用户运行；判据与删除逻辑完全一致，只是 hive 不同）
+// 机器级写不了就退回 HKCU（标准用户跑时；判据与删除逻辑完全一致，只是 hive 不同）
 RegistryHive hive = RegistryHive.LocalMachine;
 try
 {
