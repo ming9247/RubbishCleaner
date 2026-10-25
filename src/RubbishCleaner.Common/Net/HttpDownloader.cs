@@ -6,7 +6,7 @@ namespace RubbishCleaner.Common.Net;
 /// HTTP 文件下载器。
 /// 支持超时、进度回调、简单重试。
 /// </summary>
-public class HttpDownloader
+public class HttpDownloader : IDisposable
 {
     private readonly HttpClient _httpClient;
     private readonly int _timeoutSeconds;

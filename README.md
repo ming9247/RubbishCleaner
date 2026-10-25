@@ -1,7 +1,7 @@
 # RubbishCleaner
 
 > 轻量、便捷、易操作的 Windows 流氓软件检测与残留清理工具
-> 当前版本：**v0.6.0**（自启动检测 + 流氓评分 + 残留启动项清理 + 软件列表与协助卸载 + 残留目录扫描与可还原清理 + 卸载后自动扫残留 + 注册表孤儿条目清理 + 系统一致性报告（只读）+ **备份历史一键回滚（v0.6）** + WPF 界面 + UAC 提权）
+> 当前版本：**v0.7.0**（自启动检测 + 流氓评分 + 残留启动项清理 + 软件列表与协助卸载 + 残留目录扫描与可还原清理 + 卸载后自动扫残留 + 注册表孤儿条目清理 + 系统一致性报告（只读）+ 备份历史一键回滚 + **特征库在线更新与设置页（v0.7，默认不联网）** + WPF 界面 + UAC 提权）
 
 ---
 
@@ -284,6 +284,23 @@ Clean / Delete / Fix / Repair 命名；二次确认可注入（测试不卡模�
 
 ---
 
+## v0.7 新增：特征库在线更新（默认不联网）+ 备份保留策略 + 设置页
+
+v0.7 解决两个「用久了」的问题：特征库怎么跟着新流氓软件走、清理备份越攒越多怎么办。
+
+| 能力 | 说明 |
+|---|---|
+| 特征库在线更新（opt-in） | 默认**完全不联网**；设置页显式开启后才检查 GitHub 上的 trust-table.json，远程版本号必须**大于**本地才更新——手工把本地版本改高也不会被覆盖 |
+| 三层加载机制不变 | 内置表 → 程序目录表 → 用户表；网络更新只写用户层（`%ProgramData%\RubbishCleaner\trust-table.json`），不碰内置与程序目录 |
+| 下载安全 | 校验 JSON 有效性后才落盘；先写临时文件、校验后再替换的两阶段提交；更新失败不影响现有特征库 |
+| 备份保留 N 个 | 设置页可配（默认 30），超出按时间淘汰最旧的注册表备份；填 0 表示全部保留 |
+| 设置页 | 联网开关 / 备份保留数集中管理，随窗口关闭持久化 |
+
+**隐私说明**：联网检查只向 `raw.githubusercontent.com` 发起一次匿名 GET（GitHub 要求 User-Agent），
+不携带任何机器信息、不上报任何数据；不开启联网开关，程序没有任何网络行为。
+
+---
+
 ## 项目结构
 
 ```
@@ -292,11 +309,12 @@ Rubbish-cleaner/
 │   ├── RubbishCleaner.App/        # WPF 主程序（UI，三个页签）
 │   ├── RubbishCleaner.Core/       # 核心引擎（检测 / 评分 / 确认表 / 清理）
 │   │   ├── RegistryCleanup/       # 注册表孤儿 Uninstall 条目（v0.4，详见文末目录说明）
-│   │   └── Integrity/             # 系统一致性报告（v0.5，只读：服务孤儿 + 状态不一致）
-│   └── RubbishCleaner.Common/     # Win32 / 注册表 / 签名 / 日志 / 文件索引
+│   │   ├── Integrity/             # 系统一致性报告（v0.5，只读：服务孤儿 + 状态不一致）
+│   │   └── Trust/                 # 特征库加载与在线更新（v0.7，默认不联网）
+│   └── RubbishCleaner.Common/     # Win32 / 注册表 / 签名 / 日志 / 文件索引 / HTTP 下载
 ├── tests/
-│   ├── RubbishCleaner.Core.Tests/ # Core 逻辑与安全闸门（337 项）
-│   └── RubbishCleaner.App.Tests/  # 排序 / 导出 / ViewModel / 注册表交互（130 项）
+│   ├── RubbishCleaner.Core.Tests/ # Core 逻辑与安全闸门（439 项）
+│   └── RubbishCleaner.App.Tests/  # 排序 / 导出 / ViewModel / 注册表交互（175 项）
 ├── tools/
 │   ├── RubbishCleaner.Smoke/      # 无界面冒烟验证工具
 │   └── RubbishCleaner.RegE2E/     # 注册表清理真机探针（e2e 全链路 / views 视图实测 / e2e32 32 位往返）
@@ -368,3 +386,17 @@ src/RubbishCleaner.Core/RegistryCleanup/
 - 残留扫描默认不扫系统目录，也不扫本工具自己的数据目录（那里是清理备份）。
 - 注册表清理**只删 Uninstall 注册表条目**，不动任何软件文件，也不动 `HKCR` / `HKLM\SYSTEM` / 厂商根目录；
   删之前一律先导出 `.reg`，还原只需双击该文件。
+
+---
+
+## 开源
+
+- 许可证：[MIT](LICENSE)
+- 特征库欢迎 PR：编辑 [`src/RubbishCleaner.App/Resources/trust-table.json`](src/RubbishCleaner.App/Resources/trust-table.json)——
+  `whitelist` 按签名者 / 路径 / 进程名收录正规软件，`blacklist` 收录明确的流氓特征；
+  合入 `main` 后，用户端「检查更新」即可拉到（记得把 `version` 加一）。
+- 误报 / 漏报欢迎提 Issue，附上报告导出的 CSV 更好定位。
+
+## Star 历史
+
+[![Star History Chart](https://api.star-history.com/svg?repos=ming9247/RubbishCleaner&type=Date)](https://star-history.com/#ming9247/RubbishCleaner&Date)
