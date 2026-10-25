@@ -25,7 +25,7 @@ public sealed class TrustTableUpdater : IDisposable
 
     /// <summary>GitHub raw文件URL(默认从main分支读取)</summary>
     public const string DefaultGitHubRawUrl = 
-        "https://raw.githubusercontent.com/YOUR_USERNAME/RubbishCleaner/main/src/RubbishCleaner.App/Resources/trust-table.json";
+        "https://raw.githubusercontent.com/ming9247/RubbishCleaner/main/src/RubbishCleaner.App/Resources/trust-table.json";
 
     /// <summary>
     /// 生产构造：真实下载器、真实用户目录。
