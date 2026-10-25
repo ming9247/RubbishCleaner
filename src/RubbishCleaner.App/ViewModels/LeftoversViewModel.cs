@@ -74,6 +74,31 @@ public sealed class LeftoverItemViewModel(LeftoverItem item)
     }
 }
 
+/// <summary>注册表残留中的一行（v0.4）。</summary>
+public sealed class RegistryOrphanItemViewModel(Core.RegistryCleanup.OrphanUninstallEntry entry)
+{
+    public Core.RegistryCleanup.OrphanUninstallEntry Entry { get; } = entry;
+
+    public string DisplayName => Entry.DisplayName;
+
+    public string VersionText => string.IsNullOrWhiteSpace(Entry.DisplayVersion) ? "—" : Entry.DisplayVersion!;
+
+    public string Publisher => string.IsNullOrWhiteSpace(Entry.Publisher) ? "（未知发行商）" : Entry.Publisher!;
+
+    public string ProductCode => Entry.ProductCode;
+
+    public string FullPath => Entry.FullPath;
+
+    /// <summary>MSI 状态的中文说明，写进列表让用户能自己复核。</summary>
+    public string StateText => Entry.MsiStateText;
+
+    public IReadOnlyList<string> Evidence => Entry.Evidence;
+
+    public bool CanDelete => Entry.CanDelete;
+
+    public string? BlockReason => Entry.BlockReason;
+}
+
 /// <summary>
 /// 残留扫描页（v0.3）。
 ///
@@ -99,6 +124,19 @@ public sealed class LeftoversViewModel : ObservableObject
 {
     private readonly ILeftoverScanner _scanner;
     private readonly Func<LeftoverCleaner> _cleanerFactory;
+
+    /// <summary>注册表孤儿条目扫描器（v0.4）。</summary>
+    private readonly Core.RegistryCleanup.IOrphanUninstallScanner _registryScanner = new Core.RegistryCleanup.OrphanUninstallScanner();
+
+    /// <summary>注册表清理器（v0.4）；备份目录默认在 %LocalAppData%\RubbishCleaner\registry-backups。</summary>
+    private readonly Func<Core.RegistryCleanup.OrphanCleaner> _registryCleanerFactory
+        = () => new Core.RegistryCleanup.OrphanCleaner();
+
+    /// <summary>最近一次注册表扫描的结果。</summary>
+    private Core.RegistryCleanup.OrphanScanResult? _registryScan;
+
+    /// <summary>注册表残留项（展示用）。</summary>
+    public ObservableCollection<RegistryOrphanItemViewModel> RegistryItems { get; } = [];
     private readonly Func<InstalledAppsResult> _installedAppsProvider;
     private readonly Func<IReadOnlyList<SoftwareProfile>> _startupProfilesProvider;
 
@@ -155,6 +193,26 @@ public sealed class LeftoversViewModel : ObservableObject
 
         OpenFolderCommand = new RelayCommand(OpenContainingFolder, p => p is LeftoverItemViewModel);
 
+        // v0.4：注册表孤儿条目
+        ScanRegistryCommand = new AsyncRelayCommand(ScanRegistryAsync, () => !IsScanning)
+        {
+            OnError = ex =>
+            {
+                Log.Error("注册表残留扫描失败", ex);
+                LastScanError = $"注册表扫描失败：{ex.Message}";
+                IsScanning = false;
+            },
+        };
+
+        CleanRegistryCommand = new AsyncRelayCommand(CleanRegistryAsync, () => CanCleanRegistry)
+        {
+            OnError = ex =>
+            {
+                Log.Error("注册表残留清理失败", ex);
+                StatusText = $"注册表清理失败：{ex.Message}";
+            },
+        };
+
         ShowAllCommand = new RelayCommand(() => ShowOnlyCleanable = false);
         ShowCleanableCommand = new RelayCommand(() => ShowOnlyCleanable = true);
         ClearFilterCommand = new RelayCommand(() => FilterText = string.Empty);
@@ -187,6 +245,12 @@ public sealed class LeftoversViewModel : ObservableObject
     public ICommand ShowCleanableCommand { get; }
 
     public ICommand ClearFilterCommand { get; }
+
+    /// <summary>扫描注册表孤儿条目（v0.4）。</summary>
+    public ICommand ScanRegistryCommand { get; }
+
+    /// <summary>清理注册表孤儿条目（v0.4）。</summary>
+    public ICommand CleanRegistryCommand { get; }
 
     public bool IsScanning
     {
@@ -316,6 +380,20 @@ public sealed class LeftoversViewModel : ObservableObject
         => Items.Where(i => i.CanDelete && i.Item.Confidence == LeftoverConfidence.High);
 
     public bool CanClean => CleanableCount > 0 && !IsScanning;
+
+    /// <summary>注册表残留条数（孤儿 Uninstall 条目）。</summary>
+    public int RegistryCount => RegistryItems.Count;
+
+    /// <summary>可清理的注册表条数。</summary>
+    public int RegistryCleanableCount => RegistryItems.Count(i => i.CanDelete);
+
+    public bool HasRegistryResidue => RegistryItems.Count > 0;
+
+    public string RegistryButtonText => RegistryCleanableCount > 0
+        ? $"清理 {RegistryCleanableCount} 个注册表残留"
+        : "无注册表残留";
+
+    public bool CanCleanRegistry => RegistryCleanableCount > 0 && !IsScanning;
 
     /// <summary>
     /// 显示一次<b>定向</b>扫描结果（v0.3.1 卸载联动）。
@@ -537,6 +615,124 @@ public sealed class LeftoversViewModel : ObservableObject
         // 用户刚点完清理，最该看到的是清理结果而不是"扫描完成"。
         await ScanAsync();
         StatusText = summary;
+    }
+
+    /// <summary>
+    /// 扫描注册表孤儿条目（v0.4）。
+    ///
+    /// 与文件残留分开扫描是刻意的：两者判据完全不同（文件靠硬痕迹，注册表靠 MSI API），
+    /// 混在一次扫描里会让用户分不清"这次扫的是磁盘还是注册表"。
+    /// </summary>
+    public async Task ScanRegistryAsync()
+    {
+        if (IsScanning)
+        {
+            return;
+        }
+
+        IsScanning = true;
+        LastScanError = null;
+        StatusText = "正在检查注册表中的孤儿卸载条目…";
+        RegistryItems.Clear();
+        NotifyRegistryChanged();
+
+        try
+        {
+            var result = await _registryScanner.ScanAsync().ConfigureAwait(true);
+            _registryScan = result;
+
+            foreach (var entry in result.Entries)
+            {
+                RegistryItems.Add(new RegistryOrphanItemViewModel(entry));
+            }
+
+            NotifyRegistryChanged();
+
+            StatusText = result.Entries.Count == 0
+                ? $"注册表检查完成：{result.ScannedCount} 个 MSI 条目全部有效，没有孤儿条目"
+                : $"注册表检查完成：{result.ScannedCount} 个 MSI 条目中发现 {result.Entries.Count} 个孤儿";
+
+            if (result.IsDegraded)
+            {
+                DegradedText = result.DegradedReason;
+            }
+
+            Log.Info($"注册表孤儿扫描：{result.ScannedCount} 条中 {result.Entries.Count} 个孤儿，用时 {result.Duration.TotalMilliseconds:F0}ms");
+        }
+        finally
+        {
+            IsScanning = false;
+        }
+    }
+
+    /// <summary>
+    /// 清理注册表孤儿条目：逐条备份 → 删键 → 复核。
+    /// </summary>
+    public async Task CleanRegistryAsync()
+    {
+        var cleaner = _registryCleanerFactory();
+        var entries = RegistryItems.Where(i => i.CanDelete).Select(i => i.Entry).ToList();
+        var plan = cleaner.BuildPlan(entries);
+
+        if (plan.IsEmpty)
+        {
+            NotifyHandler("没有可清理项", "当前没有可自动清理的注册表残留。");
+            return;
+        }
+
+        var detail = string.Join('\n', plan.Targets.Take(15).Select(t => $"· {t.DisplayName}（{t.ProductCode}）"));
+        if (plan.Targets.Count > 15)
+        {
+            detail += $"\n… 以及另外 {plan.Targets.Count - 15} 个";
+        }
+
+        var message =
+            $"即将删除以下 {plan.Count} 个「应用和功能」中的孤儿条目：\n\n{detail}\n\n" +
+            "这些条目在 Windows Installer 里已经不存在（点卸载会报错），删除它们只是清理噪音。\n\n" +
+            "· 删除前会自动导出 .reg 备份到 %LocalAppData%\\RubbishCleaner\\registry-backups\n" +
+            "· 备份文件双击即可还原\n" +
+            "· 只删除 Uninstall 注册表条目，不动任何软件文件";
+
+        if (!ConfirmHandler("确认清理注册表残留", message))
+        {
+            StatusText = "已取消注册表清理";
+            return;
+        }
+
+        StatusText = "正在备份并删除…";
+        var results = await Task.Run(() => cleaner.Execute(plan)).ConfigureAwait(true);
+
+        var ok = results.Count(r => r.Success);
+        var failed = results.Where(r => !r.Success).ToList();
+
+        foreach (var r in results)
+        {
+            Log.Info($"注册表清理 {r.Target.FullPath}：{(r.Success ? "成功" : "失败 - " + r.Message)}");
+        }
+
+        var summary = failed.Count == 0
+            ? $"已删除 {ok} 个孤儿条目（备份在 registry-backups 目录，可还原）"
+            : $"注册表清理完成：成功 {ok} 个，失败 {failed.Count} 个";
+
+        NotifyHandler(
+            failed.Count == 0 ? "注册表清理完成" : "部分条目清理失败",
+            failed.Count == 0
+                ? $"已删除 {ok} 个孤儿条目。\n\n备份位置：%LocalAppData%\\RubbishCleaner\\registry-backups\n如需要还原，双击对应的 .reg 文件即可。"
+                : string.Join('\n', failed.Select(f => $"· {f.Target.DisplayName}：{f.Message}")));
+
+        // 重扫刷新
+        await ScanRegistryAsync().ConfigureAwait(true);
+        StatusText = summary;
+    }
+
+    private void NotifyRegistryChanged()
+    {
+        OnPropertyChanged(nameof(RegistryCount));
+        OnPropertyChanged(nameof(RegistryCleanableCount));
+        OnPropertyChanged(nameof(HasRegistryResidue));
+        OnPropertyChanged(nameof(RegistryButtonText));
+        OnPropertyChanged(nameof(CanCleanRegistry));
+        System.Windows.Input.CommandManager.InvalidateRequerySuggested();
     }
 
     private void ApplyFilter()

@@ -231,7 +231,7 @@
           <Image Source="/app.ico" Width="22" Height="22" VerticalAlignment="Center"
                  RenderOptions.BitmapScalingMode="HighQuality" />
           <TextBlock Text="RubbishCleaner" Style="{StaticResource TitleText}" Margin="8,0,0,0" />
-          <TextBlock Text="v0.3.1" Style="{StaticResource SecondaryText}" Margin="8,4,0,0" />
+          <TextBlock Text="v0.4.0" Style="{StaticResource SecondaryText}" Margin="8,4,0,0" />
         </StackPanel>
 
         <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">
@@ -593,6 +593,27 @@
 
               <Separator Margin="0,12" />
 
+              <!-- v0.4：注册表孤儿条目（与文件残留分开，判据完全不同） -->
+              <TextBlock Text="注册表" FontWeight="SemiBold" Margin="0,0,0,6" />
+              <Button Content="扫描注册表残留" HorizontalContentAlignment="Center"
+                      Command="{Binding Leftovers.ScanRegistryCommand}"
+                      ToolTip="查找「应用和功能」里点卸载会报错的孤儿条目（只读）" />
+
+              <Button HorizontalContentAlignment="Center" Margin="0,6,0,0"
+                      Command="{Binding Leftovers.CleanRegistryCommand}"
+                      Background="#FDECEC" BorderBrush="#E8B4B4" Foreground="#B42318"
+                      ToolTip="删除前自动导出 .reg 备份，双击即可还原">
+                <Button.Content>
+                  <Binding Path="Leftovers.RegistryButtonText" />
+                </Button.Content>
+              </Button>
+
+              <TextBlock Margin="0,6,0,0" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
+                         TextWrapping="Wrap"
+                         Text="仅清理 Windows Installer 已确认不存在的条目；有 .reg 备份可还原。" />
+
+              <Separator Margin="0,12" />
+
               <TextBlock Text="筛选" FontWeight="SemiBold" Margin="0,0,0,8" />
               <Button Content="全部残留" HorizontalContentAlignment="Left" Command="{Binding Leftovers.ShowAllCommand}" />
               <Button Content="只看可清理" HorizontalContentAlignment="Left" Command="{Binding Leftovers.ShowCleanableCommand}"
@@ -650,7 +671,13 @@
                 </Grid>
               </Border>
 
-              <ListBox Grid.Row="1" ItemsSource="{Binding Leftovers.FilteredItems}"
+              <Grid Grid.Row="1">
+                <Grid.RowDefinitions>
+                  <RowDefinition Height="*" />
+                  <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+              <ListBox Grid.Row="0" ItemsSource="{Binding Leftovers.FilteredItems}"
                        SelectedItem="{Binding Leftovers.Selected, Mode=TwoWay}"
                        BorderThickness="0" Background="Transparent"
                        ScrollViewer.HorizontalScrollBarVisibility="Disabled"
@@ -729,6 +756,46 @@
                   </DataTemplate>
                 </ListBox.ItemTemplate>
               </ListBox>
+
+              <!-- v0.4：注册表残留（与文件残留并列但分开滚动） -->
+              <Border Grid.Row="1" Background="#FFF8F8" BorderBrush="{StaticResource BorderBrush}"
+                      BorderThickness="0,1,0,0" MaxHeight="220"
+                      Visibility="{Binding Leftovers.HasRegistryResidue, Converter={StaticResource BoolToVisibility}}">
+                <StackPanel>
+                  <TextBlock Margin="10,8,10,4" FontWeight="SemiBold" Foreground="#991B1B">
+                    <Run Text="注册表残留：" /><Run Text="{Binding Leftovers.RegistryCount, Mode=OneWay}" /><Run Text=" 个孤儿条目（点卸载会报错）" />
+                  </TextBlock>
+
+                  <ListBox ItemsSource="{Binding Leftovers.RegistryItems}" BorderThickness="0" Background="Transparent"
+                           ScrollViewer.HorizontalScrollBarVisibility="Disabled" MaxHeight="180">
+                    <ListBox.ItemTemplate>
+                      <DataTemplate>
+                        <Border BorderBrush="#F0D0D0" BorderThickness="0,0,0,1" Padding="10,5">
+                          <StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                              <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" />
+                              <TextBlock Text="{Binding VersionText}" Margin="8,0,0,0" Style="{StaticResource SecondaryText}" />
+                              <TextBlock Text="{Binding Publisher}" Margin="8,0,0,0" Style="{StaticResource SecondaryText}" />
+                            </StackPanel>
+                            <TextBlock Text="{Binding ProductCode}" FontSize="11" Style="{StaticResource SecondaryText}"
+                                       TextTrimming="CharacterEllipsis" />
+                            <ItemsControl ItemsSource="{Binding Evidence}" Margin="0,2,0,0">
+                              <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                  <TextBlock FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap">
+                                    <Run Text="· " /><Run Text="{Binding Mode=OneWay}" />
+                                  </TextBlock>
+                                </DataTemplate>
+                              </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                          </StackPanel>
+                        </Border>
+                      </DataTemplate>
+                    </ListBox.ItemTemplate>
+                  </ListBox>
+                </StackPanel>
+              </Border>
+              </Grid>
 
               <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center"
                           Visibility="{Binding Leftovers.ShowEmptyState, Converter={StaticResource BoolToVisibility}}">
