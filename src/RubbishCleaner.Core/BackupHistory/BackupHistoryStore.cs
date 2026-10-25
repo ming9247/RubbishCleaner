@@ -49,14 +49,15 @@ public sealed class BackupHistoryStore : IBackupHistoryStore
     private readonly Func<string, bool> _fileExists;
     private readonly Func<string, int> _importRunner;
     private readonly Func<string, (RegistryView View, string SubKeyPath)?> _keyPathMapper;
-    /// <summary>回滚<b>前</b>的目标键存在性检查（防线：键已存在则拒绝，防覆盖新键）。</summary>
-    private readonly Func<RegistryView, string, bool> _preRollbackKeyExists;
+    /// <summary>回滚<b>前</b>的目标键存在性检查（防线：键已存在则拒绝，防覆盖新键）。
+    /// 参数是 .reg 段头原文（hive 信息在其中）。</summary>
+    private readonly Func<string, RegistryView, string, bool> _preRollbackKeyExists;
 
     /// <summary>回滚<b>后</b>的复核（防线：键必须真的回来，不以退出码为准）。
     /// 两个必须是独立依赖——同一个委托在语义上自相矛盾（先要求不存在、再要求存在），
     /// 测试也无法同时构造两条防线。v0.6 开发中实测踩过（第一版两者共用一个委托，
     /// SuccessPath 与 TargetKeyExists 两条测试互斥失败）。</summary>
-    private readonly Func<RegistryView, string, bool> _postImportKeyExists;
+    private readonly Func<string, RegistryView, string, bool> _postImportKeyExists;
 
     /// <summary>生产构造：真实目录、真实 reg.exe、真实注册表。</summary>
     public BackupHistoryStore(string? directory = null)
@@ -71,14 +72,15 @@ public sealed class BackupHistoryStore : IBackupHistoryStore
     }
 
     /// <summary>测试构造：全部依赖可注入，绝不真 import。
-    /// 「回滚前检查」与「回滚后复核」是两个独立依赖（语义见字段注释）。</summary>
+    /// 「回滚前检查」与「回滚后复核」是两个独立依赖（语义见字段注释）；
+    /// 两者第一个参数都是 .reg 段头原文（hive 从这里解析，见 DefaultKeyExists 的真机教训）。</summary>
     public BackupHistoryStore(
         string directory,
         Func<string, bool>? fileExists,
         Func<string, int>? importRunner,
         Func<string, (RegistryView View, string SubKeyPath)?>? keyPathMapper,
-        Func<RegistryView, string, bool>? preRollbackKeyExists,
-        Func<RegistryView, string, bool>? postImportKeyExists)
+        Func<string, RegistryView, string, bool>? preRollbackKeyExists,
+        Func<string, RegistryView, string, bool>? postImportKeyExists)
     {
         _directory = directory;
         _fileExists = fileExists ?? File.Exists;
@@ -88,17 +90,49 @@ public sealed class BackupHistoryStore : IBackupHistoryStore
         _postImportKeyExists = postImportKeyExists ?? DefaultKeyExists;
     }
 
-    private static bool DefaultKeyExists(RegistryView view, string path)
+    /// <summary>
+    /// 默认的键存在性检查。<b>hive 必须来自段头原文</b>——
+    /// 真机教训（v0.6 回滚验证暴露）：v0.6 第一版只开 <c>LocalMachine</c> 基键，
+    /// HKCU 的备份复核永远失败、重复回滚防线永远失效。
+    /// </summary>
+    private static bool DefaultKeyExists(string regSectionPath, RegistryView view, string subKeyPath)
     {
         try
         {
-            using var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, view);
-            return baseKey.OpenSubKey(path) is not null;
+            var hive = ParseHive(regSectionPath);
+            if (hive is null)
+            {
+                return false;
+            }
+
+            using var baseKey = RegistryKey.OpenBaseKey(hive.Value, view);
+            return baseKey.OpenSubKey(subKeyPath) is not null;
         }
         catch
         {
             return false;
         }
+    }
+
+    /// <summary>从 .reg 段头前缀解析 hive；不支持的形式返回 null（与 MapPhysicalKeyPath 同口径）。</summary>
+    private static RegistryHive? ParseHive(string regSectionPath)
+    {
+        if (string.IsNullOrWhiteSpace(regSectionPath))
+        {
+            return null;
+        }
+
+        if (regSectionPath.StartsWith(@"HKEY_LOCAL_MACHINE", StringComparison.OrdinalIgnoreCase))
+        {
+            return RegistryHive.LocalMachine;
+        }
+
+        if (regSectionPath.StartsWith(@"HKEY_CURRENT_USER", StringComparison.OrdinalIgnoreCase))
+        {
+            return RegistryHive.CurrentUser;
+        }
+
+        return null;
     }
 
     /// <summary>生产默认目录与 OrphanCleaner 同源（复用，不复制逻辑）。</summary>
@@ -189,7 +223,8 @@ public sealed class BackupHistoryStore : IBackupHistoryStore
                 DisplayName = string.IsNullOrWhiteSpace(displayName) ? null : displayName,
                 BackedUpAt = ParseTimestampFromFileName(fileName) ?? File.GetLastWriteTime(filePath),
                 FileSizeBytes = new FileInfo(filePath).Length,
-                RollbackBlockReason = ComputeRollbackBlockReason(filePath, keyPath, _preRollbackKeyExists),
+                RollbackBlockReason = ComputeRollbackBlockReason(filePath, keyPath,
+                    (path, view, sub) => _preRollbackKeyExists(path, view, sub)),
             };
         }
         catch (Exception ex)
@@ -228,7 +263,7 @@ public sealed class BackupHistoryStore : IBackupHistoryStore
 
     /// <summary>回滚前检查：文件还在吗？目标键是不是已经被谁建回来了？</summary>
     private string? ComputeRollbackBlockReason(
-        string filePath, string keyPath, Func<RegistryView, string, bool> keyExists)
+        string filePath, string keyPath, Func<string, RegistryView, string, bool> keyExists)
     {
         if (!_fileExists(filePath))
         {
@@ -241,7 +276,7 @@ public sealed class BackupHistoryStore : IBackupHistoryStore
             return "无法从段头解析出注册表位置";
         }
 
-        if (keyExists(mapped.Value.View, mapped.Value.SubKeyPath))
+        if (keyExists(keyPath, mapped.Value.View, mapped.Value.SubKeyPath))
         {
             // 这正是回滚最危险的场景：删掉之后的原键位被新建过。
             // 此时 import 会覆盖新内容，必须交给人核对。
@@ -280,7 +315,7 @@ public sealed class BackupHistoryStore : IBackupHistoryStore
             };
         }
 
-        if (_preRollbackKeyExists(mapped.Value.View, mapped.Value.SubKeyPath))
+        if (_preRollbackKeyExists(entry.KeyPath, mapped.Value.View, mapped.Value.SubKeyPath))
         {
             return new BackupRollbackResult
             {
@@ -307,7 +342,7 @@ public sealed class BackupHistoryStore : IBackupHistoryStore
         ct.ThrowIfCancellationRequested();
 
         // 防线 3：复核键确实回来了
-        if (!_postImportKeyExists(mapped.Value.View, mapped.Value.SubKeyPath))
+        if (!_postImportKeyExists(entry.KeyPath, mapped.Value.View, mapped.Value.SubKeyPath))
         {
             return new BackupRollbackResult
             {

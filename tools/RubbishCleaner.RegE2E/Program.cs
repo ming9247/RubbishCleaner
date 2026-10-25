@@ -25,6 +25,11 @@ if (mode is "e2e32" or "32bit")
     return await E2E32.RunAsync();
 }
 
+if (mode is "rollback")
+{
+    return await RollbackProbe.RunAsync();
+}
+
 if (mode is "integrity" or "v05")
 {
     return await IntegrityProbe.RunAsync();

@@ -58,16 +58,16 @@ public class BackupHistoryStoreTests : IDisposable
     private BackupHistoryStore Build(
         Func<string, bool>? fileExists = null,
         Func<string, int>? importRunner = null,
-        Func<RegistryView, string, bool>? preRollbackKeyExists = null,
+        Func<string, RegistryView, string, bool>? preRollbackKeyExists = null,
         Func<string, (RegistryView, string)?>? mapper = null,
-        Func<RegistryView, string, bool>? postImportKeyExists = null)
+        Func<string, RegistryView, string, bool>? postImportKeyExists = null)
         => new(
             _dir,
             fileExists ?? (_ => true),
             importRunner ?? (_ => 0),
             mapper ?? (Func<string, (RegistryView, string)?>)BackupHistoryStore.MapPhysicalKeyPath,
-            preRollbackKeyExists ?? ((_, _) => false),
-            postImportKeyExists ?? ((_, _) => true));
+            preRollbackKeyExists ?? ((_, _, _) => false),
+            postImportKeyExists ?? ((_, _, _) => true));
 
     // ---------- ListAsync：解析 ----------
 
@@ -273,7 +273,7 @@ public class BackupHistoryStoreTests : IDisposable
         var imported = new List<string>();
         var store = Build(
             importRunner: p => { imported.Add(p); return 0; },
-            preRollbackKeyExists: (_, _) => true); // 目标键被人建回来了
+            preRollbackKeyExists: (_, _, _) => true); // 目标键被人建回来了
 
         var result = await store.RollbackAsync(new BackupHistoryEntry
         {
@@ -308,7 +308,7 @@ public class BackupHistoryStoreTests : IDisposable
     {
         var path = WriteReg($"orphan-{OrphanGuid}-20261025120007.reg", BuildRegContent(PhysicalPath64, null));
         // import 报成功，但复核发现键没回来——写操作必须以注册表实际状态为准
-        var store = Build(importRunner: _ => 0, postImportKeyExists: (_, _) => false);
+        var store = Build(importRunner: _ => 0, postImportKeyExists: (_, _, _) => false);
 
         var result = await store.RollbackAsync(new BackupHistoryEntry
         {
@@ -327,7 +327,7 @@ public class BackupHistoryStoreTests : IDisposable
         var imported = new List<string>();
         var store = Build(
             importRunner: p => { imported.Add(p); return 0; },
-            postImportKeyExists: (_, p) => p.Contains(OrphanGuid)); // 复核：键回来了
+            postImportKeyExists: (_, _, p) => p.Contains(OrphanGuid)); // 复核：键回来了
 
         var result = await store.RollbackAsync(new BackupHistoryEntry
         {
@@ -349,7 +349,7 @@ public class BackupHistoryStoreTests : IDisposable
         var store = Build(
             importRunner: _ => 0,
             mapper: (Func<string, (RegistryView, string)?>)BackupHistoryStore.MapPhysicalKeyPath,
-            postImportKeyExists: (v, p) => { checkedViews.Add(v); return true; });
+            postImportKeyExists: (path, v, p) => { checkedViews.Add(v); return true; });
 
         var result = await store.RollbackAsync(new BackupHistoryEntry
         {
