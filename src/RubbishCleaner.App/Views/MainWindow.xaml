@@ -231,7 +231,7 @@
           <Image Source="/app.ico" Width="22" Height="22" VerticalAlignment="Center"
                  RenderOptions.BitmapScalingMode="HighQuality" />
           <TextBlock Text="RubbishCleaner" Style="{StaticResource TitleText}" Margin="8,0,0,0" />
-          <TextBlock Text="v0.4.1" Style="{StaticResource SecondaryText}" Margin="8,4,0,0" />
+          <TextBlock Text="v0.5.0" Style="{StaticResource SecondaryText}" Margin="8,4,0,0" />
         </StackPanel>
 
         <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">
@@ -920,6 +920,253 @@
                 </Grid>
               </Border>
             </Grid>
+          </Border>
+        </Grid>
+      </TabItem>
+      <!-- ============ v0.5 新增：系统一致性报告 ============ -->
+      <!--
+        只读报告页签。刻意没有清理/修复按钮：v0.5 的产品承诺是"只报告、永不自动清理"，
+        界面上不出现清理入口，用户才不会误以为报告可以一键修复。
+        两个区块（服务孤儿 / 状态不一致）判据来源不同，分开展示，不让用户以为是同一类东西。
+      -->
+      <TabItem Header="一致性报告">
+        <Grid Margin="16">
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+          </Grid.RowDefinitions>
+
+          <!-- 工具条 -->
+          <Border Grid.Row="0" Style="{StaticResource Card}" Margin="0,0,0,12">
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+              </Grid.ColumnDefinitions>
+
+              <Button Grid.Column="0" Content="检查系统一致性" Style="{StaticResource PrimaryButton}"
+                      Command="{Binding Integrity.ScanCommand}" Margin="0,0,12,0"
+                      ToolTip="只读检查服务表与已安装软件记录，不会改动任何数据" />
+
+              <Button Grid.Column="1" Content="停止" Command="{Binding Integrity.CancelCommand}"
+                      ToolTip="停止正在进行的只读检查" />
+
+              <!-- v0.5 承诺常驻：只读报告，永不自动清理 -->
+              <TextBlock Grid.Column="2" Text="{Binding Integrity.OnlyReadNotice}" Margin="16,0,0,0"
+                         VerticalAlignment="Center" FontSize="11" Foreground="#92400E" TextWrapping="Wrap" />
+            </Grid>
+          </Border>
+
+          <!-- 报告主体 -->
+          <Border Grid.Row="1" Style="{StaticResource Card}" Padding="0">
+            <Grid>
+              <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+              </Grid.RowDefinitions>
+
+              <!-- 语义化总结：检查了多少条、发现几条、为什么只报告不清理 -->
+              <Border Grid.Row="0" Background="#FAFBFC" BorderBrush="{StaticResource BorderBrush}"
+                      BorderThickness="0,0,0,1" Padding="10,8">
+                <StackPanel>
+                  <TextBlock Text="{Binding Integrity.SummaryText}" TextWrapping="Wrap" />
+                  <TextBlock Text="{Binding Integrity.DegradedText}" FontSize="11" Foreground="#92400E"
+                             TextWrapping="Wrap" Margin="0,4,0,0"
+                             Visibility="{Binding Integrity.DegradedText, Converter={StaticResource BoolToVisibility}}" />
+                  <TextBlock Text="{Binding Integrity.ErrorText}" FontSize="11" Foreground="#B42318"
+                             TextWrapping="Wrap" Margin="0,4,0,0"
+                             Visibility="{Binding Integrity.ErrorText, Converter={StaticResource BoolToVisibility}}" />
+                </StackPanel>
+              </Border>
+
+              <Grid Grid.Row="1">
+                <!-- 三种整体状态：没扫过 / 干净 / 有内容 -->
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"
+                            Visibility="{Binding Integrity.ShowEmptyState, Converter={StaticResource BoolToVisibility}}">
+                  <TextBlock Text="还没有检查" FontSize="15" HorizontalAlignment="Center"
+                             Foreground="{StaticResource TextSecondaryBrush}" />
+                  <TextBlock Text="点击上方「检查系统一致性」：只读检查，不会改动任何数据"
+                             Style="{StaticResource SecondaryText}" HorizontalAlignment="Center" Margin="0,6,0,0" />
+                </StackPanel>
+
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"
+                            Visibility="{Binding Integrity.ShowCleanState, Converter={StaticResource BoolToVisibility}}">
+                  <TextBlock Text="系统记录一致，没有发现问题" FontSize="15" HorizontalAlignment="Center"
+                             Foreground="{StaticResource TextSecondaryBrush}" />
+                  <TextBlock Text="服务表与已安装软件记录都能对得上"
+                             Style="{StaticResource SecondaryText}" HorizontalAlignment="Center" Margin="0,6,0,0" />
+                </StackPanel>
+
+                <ScrollViewer VerticalScrollBarVisibility="Auto"
+                              Visibility="{Binding Integrity.ShowResultState, Converter={StaticResource BoolToVisibility}}">
+                  <StackPanel>
+
+                    <!-- 区块一：服务孤儿 -->
+                    <StackPanel Margin="10,10,10,4">
+                      <TextBlock Text="服务孤儿（可执行文件已不存在）" FontWeight="SemiBold" Foreground="#991B1B" />
+                      <TextBlock Style="{StaticResource SecondaryText}" TextWrapping="Wrap" Margin="0,2,0,0"
+                                 Text="服务表由系统维护、没有“按需注册”陷阱，判定可靠；但文件缺失也可能是系统按需启用的功能组件，是否删除请自行判断。" />
+                    </StackPanel>
+
+                    <ListBox MaxHeight="230" BorderThickness="0" Background="Transparent" Margin="0,4,0,0"
+                             ItemsSource="{Binding Integrity.ServiceItems}"
+                             SelectedItem="{Binding Integrity.SelectedService, Mode=TwoWay}"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                      <ListBox.ItemTemplate>
+                        <DataTemplate>
+                          <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="10,6">
+                            <Grid>
+                              <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="170" />
+                                <ColumnDefinition Width="80" />
+                                <ColumnDefinition Width="80" />
+                                <ColumnDefinition Width="*" MinWidth="180" />
+                              </Grid.ColumnDefinitions>
+                              <StackPanel Grid.Column="0">
+                                <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding ServiceName}" FontSize="11"
+                                           Style="{StaticResource SecondaryText}"
+                                           TextTrimming="CharacterEllipsis" ToolTip="{Binding ServiceName}" />
+                              </StackPanel>
+                              <TextBlock Grid.Column="1" Text="{Binding StartModeText}" VerticalAlignment="Center"
+                                         Style="{StaticResource SecondaryText}" />
+                              <TextBlock Grid.Column="2" Text="{Binding StateText}" VerticalAlignment="Center"
+                                         Style="{StaticResource SecondaryText}" />
+                              <TextBlock Grid.Column="3" Text="{Binding ResolvedPath}" VerticalAlignment="Center"
+                                         FontSize="11" FontFamily="Consolas" TextTrimming="CharacterEllipsis"
+                                         ToolTip="{Binding ResolvedPath}" />
+                            </Grid>
+                          </Border>
+                        </DataTemplate>
+                      </ListBox.ItemTemplate>
+                    </ListBox>
+
+                    <!-- 服务孤儿详情：证据链 + 可复制的手动命令。只给命令不代劳。 -->
+                    <Border Background="#FFFFFF" BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="0,1,0,0" Padding="10,8" Margin="0,0,0,8"
+                            Visibility="{Binding Integrity.HasSelectedService, Converter={StaticResource BoolToVisibility}}">
+                      <StackPanel>
+                        <TextBlock FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap">
+                          <Run Text="服务名：" /><Run Text="{Binding Integrity.SelectedService.ServiceName, Mode=OneWay}" />
+                          <Run Text="　ImagePath（原始）：" /><Run Text="{Binding Integrity.SelectedService.ImagePathRaw, Mode=OneWay}" />
+                        </TextBlock>
+                        <TextBlock FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap" Margin="0,2,0,0">
+                          <Run Text="解析路径：" /><Run Text="{Binding Integrity.SelectedService.ResolvedPath, Mode=OneWay}" />
+                        </TextBlock>
+                        <TextBlock Text="判定依据" FontWeight="SemiBold" Margin="0,8,0,4" FontSize="12" />
+                        <ItemsControl ItemsSource="{Binding Integrity.SelectedService.Evidence}">
+                          <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                              <TextBlock FontSize="11" TextWrapping="Wrap"
+                                         Foreground="{StaticResource TextSecondaryBrush}">
+                                <Run Text="· " /><Run Text="{Binding Mode=OneWay}" />
+                              </TextBlock>
+                            </DataTemplate>
+                          </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Text="手动处置（复制到管理员终端自行执行）" FontWeight="SemiBold"
+                                   Margin="0,10,0,4" FontSize="12" Foreground="#B45309" />
+                        <Grid>
+                          <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                          </Grid.ColumnDefinitions>
+                          <TextBox Text="{Binding Integrity.SelectedService.ManualCommand, Mode=OneWay}"
+                                   IsReadOnly="True" FontFamily="Consolas" FontSize="12" Padding="5,3" />
+                          <Button Grid.Column="1" Content="复制" Margin="8,0,0,0" Padding="10,3"
+                                  Command="{Binding Integrity.CopyTextCommand}"
+                                  CommandParameter="{Binding Integrity.SelectedService.ManualCommand}"
+                                  ToolTip="复制手动命令到剪贴板（不会自动执行）" />
+                        </Grid>
+                      </StackPanel>
+                    </Border>
+
+                    <!-- 区块二：状态不一致 -->
+                    <StackPanel Margin="10,10,10,4">
+                      <TextBlock Text="文件与注册表状态不一致" FontWeight="SemiBold" Foreground="#991B1B" />
+                      <TextBlock Style="{StaticResource SecondaryText}" TextWrapping="Wrap" Margin="0,2,0,0"
+                                 Text="Windows Installer 仍认为产品已安装，但对应文件已被清理；缓存安装包缺失通常无害。" />
+                    </StackPanel>
+
+                    <ListBox MaxHeight="230" BorderThickness="0" Background="Transparent" Margin="0,4,0,0"
+                             ItemsSource="{Binding Integrity.IssueItems}"
+                             SelectedItem="{Binding Integrity.SelectedIssue, Mode=TwoWay}"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                      <ListBox.ItemTemplate>
+                        <DataTemplate>
+                          <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="10,6">
+                            <Grid>
+                              <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" MinWidth="160" />
+                                <ColumnDefinition Width="130" />
+                                <ColumnDefinition Width="280" />
+                              </Grid.ColumnDefinitions>
+                              <StackPanel Grid.Column="0">
+                                <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding ProductCode}" FontSize="11" FontFamily="Consolas"
+                                           Style="{StaticResource SecondaryText}"
+                                           TextTrimming="CharacterEllipsis" ToolTip="{Binding ProductCode}" />
+                              </StackPanel>
+                              <TextBlock Grid.Column="1" Text="{Binding KindText}" VerticalAlignment="Center"
+                                         Style="{StaticResource SecondaryText}" TextWrapping="Wrap" />
+                              <TextBlock Grid.Column="2" Text="{Binding SuggestionsText}" VerticalAlignment="Center"
+                                         FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
+                                         TextTrimming="CharacterEllipsis" TextWrapping="Wrap"
+                                         ToolTip="{Binding SuggestionsText}" />
+                            </Grid>
+                          </Border>
+                        </DataTemplate>
+                      </ListBox.ItemTemplate>
+                    </ListBox>
+
+                    <!-- 状态不一致详情：证据 + 建议（整段可复制） -->
+                    <Border Background="#FFFFFF" BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="0,1,0,0" Padding="10,8"
+                            Visibility="{Binding Integrity.HasSelectedIssue, Converter={StaticResource BoolToVisibility}}">
+                      <StackPanel>
+                        <TextBlock Text="判定依据" FontWeight="SemiBold" Margin="0,0,0,4" FontSize="12" />
+                        <ItemsControl ItemsSource="{Binding Integrity.SelectedIssue.Evidence}">
+                          <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                              <TextBlock FontSize="11" TextWrapping="Wrap"
+                                         Foreground="{StaticResource TextSecondaryBrush}">
+                                <Run Text="· " /><Run Text="{Binding Mode=OneWay}" />
+                              </TextBlock>
+                            </DataTemplate>
+                          </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Text="建议（只给建议，工具不会代劳）" FontWeight="SemiBold"
+                                   Margin="0,8,0,4" FontSize="12" Foreground="#B45309" />
+                        <Grid>
+                          <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                          </Grid.ColumnDefinitions>
+                          <TextBox Text="{Binding Integrity.SelectedIssue.SuggestionsText, Mode=OneWay}"
+                                   IsReadOnly="True" FontFamily="Consolas" FontSize="12" Padding="5,3"
+                                   TextWrapping="Wrap"
+                                   MaxHeight="90" VerticalScrollBarVisibility="Auto" />
+                          <Button Grid.Column="1" Content="复制" Margin="8,0,0,0" Padding="10,3"
+                                  VerticalAlignment="Top"
+                                  Command="{Binding Integrity.CopyTextCommand}"
+                                  CommandParameter="{Binding Integrity.SelectedIssue.SuggestionsText}"
+                                  ToolTip="复制建议文本到剪贴板" />
+                        </Grid>
+                      </StackPanel>
+                    </Border>
+                  </StackPanel>
+                </ScrollViewer>
+              </Grid>
+            </Grid>
+          </Border>
+
+          <!-- 底部状态条 -->
+          <Border Grid.Row="2" Margin="0,12,0,0" Style="{StaticResource Card}">
+            <TextBlock Text="{Binding Integrity.StatusText}" TextWrapping="Wrap" />
           </Border>
         </Grid>
       </TabItem>

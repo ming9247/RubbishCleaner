@@ -25,9 +25,14 @@ if (mode is "e2e32" or "32bit")
     return await E2E32.RunAsync();
 }
 
+if (mode is "integrity" or "v05")
+{
+    return await IntegrityProbe.RunAsync();
+}
+
 if (mode is not ("e2e" or "all"))
 {
-    Console.WriteLine($"未知模式：{mode}（可用：e2e / e2e32 / views）");
+    Console.WriteLine($"未知模式：{mode}（可用：e2e / e2e32 / views / integrity）");
     return 2;
 }
 

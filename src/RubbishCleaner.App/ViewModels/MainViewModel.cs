@@ -174,6 +174,14 @@ public sealed class MainViewModel : ObservableObject
     /// </summary>
     public LeftoversViewModel Leftovers { get; }
 
+    /// <summary>
+    /// 系统一致性报告页的视图模型（v0.5）。
+    ///
+    /// 最小接线：只在这里暴露，扫描器走 IntegrityViewModel 自己的可选注入默认实现。
+    /// <b>v0.5 的产物是只读报告，永不自动清理</b>——这里同样只读暴露，不做任何二次包装。
+    /// </summary>
+    public IntegrityViewModel Integrity { get; } = new();
+
     public ObservableCollection<SoftwareItemViewModel> Profiles { get; } = [];
 
     public ObservableCollection<SoftwareItemViewModel> FilteredProfiles { get; } = [];
