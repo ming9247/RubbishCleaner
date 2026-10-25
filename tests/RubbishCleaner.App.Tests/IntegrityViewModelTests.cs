@@ -205,7 +205,8 @@ public class IntegrityViewModelTests
             .Select(p => p.Name)
             .ToList();
 
-        Assert.Equal(new[] { nameof(IntegrityViewModel.ScanCommand), nameof(IntegrityViewModel.CancelCommand), nameof(IntegrityViewModel.CopyTextCommand) }.OrderBy(n => n), commandProperties.OrderBy(n => n));
+        // v0.6 起含导出命令（Export 写文件到桌面，不是注册表写操作，属正当报告能力）
+        Assert.Equal(new[] { nameof(IntegrityViewModel.ScanCommand), nameof(IntegrityViewModel.CancelCommand), nameof(IntegrityViewModel.CopyTextCommand), nameof(IntegrityViewModel.ExportCsvCommand), nameof(IntegrityViewModel.ExportHtmlCommand) }.OrderBy(n => n), commandProperties.OrderBy(n => n));
 
         foreach (var name in commandProperties)
         {

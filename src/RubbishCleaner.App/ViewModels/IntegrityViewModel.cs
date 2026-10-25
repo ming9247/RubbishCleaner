@@ -123,6 +123,14 @@ public sealed class IntegrityViewModel : ObservableObject
 
         CancelCommand = new RelayCommand(Cancel, () => IsScanning);
 
+        // 导出：有结果才可用。写文件到桌面并打开资源管理器（对齐残留页导出的 UX）。
+        ExportCsvCommand = new RelayCommand(
+            () => Export(Infrastructure.ReportFormat.Csv),
+            () => _serviceResult is not null && _appStateResult is not null && !IsScanning);
+        ExportHtmlCommand = new RelayCommand(
+            () => Export(Infrastructure.ReportFormat.Html),
+            () => _serviceResult is not null && _appStateResult is not null && !IsScanning);
+
         // 手动命令复制：让用户把命令拿到自己开的管理员终端里自己执行，工具不代劳。
         CopyTextCommand = new RelayCommand(
             p => TryCopy(p?.ToString() ?? string.Empty),
@@ -143,6 +151,59 @@ public sealed class IntegrityViewModel : ObservableObject
         {
             Log.Error("一致性检查读取已安装软件失败", ex);
             return new Core.Uninstall.InstalledAppsResult([], 0, 0, ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// 导出一致性报告（CSV/HTML）。
+    ///
+    /// <para>与既有残留页导出同一套 UX：Content 由 XAML 传格式，弹保存框与写文件在
+    /// <see cref="IntegrityReportWriter.WriteTo"/>（纯函数）+ 调用方完成。</para>
+    /// </summary>
+    public string ExportReport(
+        Infrastructure.ReportFormat format, ServiceOrphanScanResult services, AppStateScanResult appStates)
+    {
+        var summary = SummaryText;
+        return IntegrityReportWriter.Build(services, appStates, format, summary, DateTime.Now);
+    }
+
+    /// <summary>最近一次服务孤儿扫描结果（导出与测试用；未扫描时为 null）。</summary>
+    public ServiceOrphanScanResult? LastServiceResult => _serviceResult;
+
+    /// <summary>最近一次状态不一致扫描结果（导出与测试用；未扫描时为 null）。</summary>
+    public AppStateScanResult? LastAppStateResult => _appStateResult;
+
+    /// <summary>导出为 CSV（写到桌面并打开所在目录，对齐残留页导出的 UX）。</summary>
+    public ICommand ExportCsvCommand { get; }
+
+    /// <summary>导出为 HTML（同上）。</summary>
+    public ICommand ExportHtmlCommand { get; }
+
+    /// <summary>导出的统一入口（副作用留在这里，Build 保持纯函数）。</summary>
+    private void Export(ReportFormat format)
+    {
+        var services = _serviceResult;
+        var appStates = _appStateResult;
+        if (services is null || appStates is null)
+        {
+            StatusText = "还没有检查结果可导出，请先执行检查";
+            return;
+        }
+
+        try
+        {
+            var desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+            var path = IntegrityReportWriter.WriteTo(
+                desktop, services, appStates, format, SummaryText, DateTime.Now);
+
+            StatusText = $"一致性报告已导出：{path}";
+            Log.Info($"导出一致性报告：{path}");
+            System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{path}\"");
+        }
+        catch (Exception ex)
+        {
+            ErrorText = $"导出失败：{ex.Message}";
+            Log.Error("导出一致性报告失败", ex);
         }
     }
 

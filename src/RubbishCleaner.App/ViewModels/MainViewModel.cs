@@ -182,6 +182,15 @@ public sealed class MainViewModel : ObservableObject
     /// </summary>
     public IntegrityViewModel Integrity { get; } = new();
 
+    /// <summary>
+    /// 备份历史页的视图模型（v0.6）。
+    ///
+    /// 最小接线同 <see cref="Integrity"/>。这一页唯一的写操作是「回滚」（reg import
+    /// 把删除前的键原样写回），由 BackupHistoryViewModel 的二次确认 + Store 的
+    /// 三层防线保护；本类不做任何二次包装。
+    /// </summary>
+    public BackupHistoryViewModel BackupHistory { get; } = new();
+
     public ObservableCollection<SoftwareItemViewModel> Profiles { get; } = [];
 
     public ObservableCollection<SoftwareItemViewModel> FilteredProfiles { get; } = [];
