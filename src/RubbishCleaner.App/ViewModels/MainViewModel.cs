@@ -191,6 +191,14 @@ public sealed class MainViewModel : ObservableObject
     /// </summary>
     public BackupHistoryViewModel BackupHistory { get; } = new();
 
+    /// <summary>
+    /// 设置页的视图模型（v0.7）：联网开关（默认关）、特征库在线更新、备份保留数量。
+    ///
+    /// 最小接线同 <see cref="BackupHistory"/>：设置加载/保存在 AppSettings，
+    /// 更新逻辑在 TrustTableUpdater，清理逻辑在 IBackupHistoryStore——本类不做二次包装。
+    /// </summary>
+    public SettingsViewModel Settings { get; } = new();
+
     public ObservableCollection<SoftwareItemViewModel> Profiles { get; } = [];
 
     public ObservableCollection<SoftwareItemViewModel> FilteredProfiles { get; } = [];

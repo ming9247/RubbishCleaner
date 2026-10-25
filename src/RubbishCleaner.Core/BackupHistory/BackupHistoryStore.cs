@@ -432,4 +432,126 @@ public sealed class BackupHistoryStore : IBackupHistoryStore
         // HKEY_USERS 等其他 hive：v0.4 的备份不会出现，出现即是异常数据，保守不处理
         return null;
     }
+
+    /// <summary>
+    /// 清理旧备份文件(v0.7)。
+    /// 
+    /// <para>保留策略：按备份时间降序排列，保留最近 <paramref name="keepCount"/> 个，
+    /// 其余移入回收站（与残留清理一致，可还原）。</para>
+    /// 
+    /// <para>默认保留30个备份。这能覆盖一个月的日常使用，
+    /// 同时控制备份目录大小在合理范围（每个 .reg 约 1KB，30个约30KB）。</para>
+    /// </summary>
+    /// <param name="keepCount">保留数量（必须≥1，建议10-50）</param>
+    /// <param name="progress">进度回调</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>清理结果</returns>
+    public Task<BackupCleanupResult> CleanOldBackupsAsync(
+        int keepCount = 30,
+        IProgress<string>? progress = null,
+        CancellationToken cancellationToken = default)
+        => Task.Run(() => CleanOldBackups(keepCount, progress, cancellationToken), cancellationToken);
+
+    private BackupCleanupResult CleanOldBackups(int keepCount, IProgress<string>? progress, CancellationToken ct)
+    {
+        if (keepCount < 1)
+        {
+            return new BackupCleanupResult
+            {
+                Success = false,
+                Message = "保留数量必须至少为1"
+            };
+        }
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        progress?.Report("正在扫描备份文件...");
+
+        if (!Directory.Exists(_directory))
+        {
+            return new BackupCleanupResult
+            {
+                Success = true,
+                Message = "备份目录不存在，无需清理",
+                Duration = watch.Elapsed
+            };
+        }
+
+        var allBackups = new List<(string FilePath, DateTimeOffset BackedUpAt)>();
+
+        foreach (var file in Directory.EnumerateFiles(_directory, "*" + ".reg"))
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var entry = Parse(file);
+            if (entry is null)
+            {
+                continue; // 无法识别的文件跳过
+            }
+
+            allBackups.Add((file, entry.BackedUpAt));
+        }
+
+        if (allBackups.Count <= keepCount)
+        {
+            return new BackupCleanupResult
+            {
+                Success = true,
+                Message = $"当前有 {allBackups.Count} 个备份，未超过保留数量 {keepCount}，无需清理",
+                TotalBackups = allBackups.Count,
+                KeptBackups = allBackups.Count,
+                RemovedBackups = 0,
+                Duration = watch.Elapsed
+            };
+        }
+
+        // 按时间降序排列，保留最近的keepCount个
+        var sorted = allBackups.OrderByDescending(b => b.BackedUpAt).ToList();
+        var toKeep = sorted.Take(keepCount).Select(b => b.FilePath).ToHashSet();
+        var toRemove = sorted.Skip(keepCount).Select(b => b.FilePath).ToList();
+
+        progress?.Report($"准备清理 {toRemove.Count} 个旧备份...");
+
+        var removed = 0;
+        var failed = new List<string>();
+
+        foreach (var file in toRemove)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            try
+            {
+                // 使用RecycleBin移入回收站（与残留清理一致）
+                var moveResult = Common.Win32.RecycleBin.MoveToRecycleBin(file);
+
+                if (moveResult.Success)
+                {
+                    removed++;
+                    progress?.Report($"已移除: {Path.GetFileName(file)} ({removed}/{toRemove.Count})");
+                }
+                else
+                {
+                    failed.Add($"{Path.GetFileName(file)}: {moveResult.Message}");
+                }
+            }
+            catch (Exception ex)
+            {
+                failed.Add($"{Path.GetFileName(file)}: {ex.Message}");
+            }
+        }
+
+        var message = removed == toRemove.Count
+            ? $"已清理 {removed} 个旧备份，保留最近 {keepCount} 个"
+            : $"已清理 {removed}/{toRemove.Count} 个旧备份，{failed.Count} 个失败";
+
+        return new BackupCleanupResult
+        {
+            Success = failed.Count == 0,
+            Message = message,
+            TotalBackups = allBackups.Count,
+            KeptBackups = keepCount,
+            RemovedBackups = removed,
+            FailedFiles = failed.Count > 0 ? failed : null,
+            Duration = watch.Elapsed
+        };
+    }
 }

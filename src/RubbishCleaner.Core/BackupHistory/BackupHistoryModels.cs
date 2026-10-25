@@ -71,6 +71,31 @@ public sealed record BackupRollbackResult
     public string? LogHint { get; init; }
 }
 
+/// <summary>备份清理结果(v0.7)。</summary>
+public sealed record BackupCleanupResult
+{
+    /// <summary>是否成功</summary>
+    public required bool Success { get; init; }
+
+    /// <summary>结果消息</summary>
+    public required string Message { get; init; }
+
+    /// <summary>清理前的备份总数</summary>
+    public int TotalBackups { get; init; }
+
+    /// <summary>保留的备份数</summary>
+    public int KeptBackups { get; init; }
+
+    /// <summary>移除的备份数</summary>
+    public int RemovedBackups { get; init; }
+
+    /// <summary>失败的文件列表（如果有）</summary>
+    public IReadOnlyList<string>? FailedFiles { get; init; }
+
+    /// <summary>耗时</summary>
+    public TimeSpan Duration { get; init; }
+}
+
 /// <summary>备份历史扫描与回滚（v0.6）。</summary>
 public interface IBackupHistoryStore
 {
@@ -88,6 +113,19 @@ public interface IBackupHistoryStore
     /// </summary>
     Task<BackupRollbackResult> RollbackAsync(
         BackupHistoryEntry entry,
+        IProgress<string>? progress = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 清理旧备份文件（v0.7）：按备份时间保留最近 keepCount 个，
+    /// 其余移入回收站（永不硬删除）。
+    /// </summary>
+    /// <param name="keepCount">保留数量（必须≥1）</param>
+    /// <param name="progress">进度回调</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>清理结果</returns>
+    Task<BackupCleanupResult> CleanOldBackupsAsync(
+        int keepCount = 30,
         IProgress<string>? progress = null,
         CancellationToken cancellationToken = default);
 }

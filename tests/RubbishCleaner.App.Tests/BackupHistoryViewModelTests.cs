@@ -47,6 +47,17 @@ public class BackupHistoryViewModelTests
             RolledBack.Add(entry);
             return Task.FromResult(RollbackResult);
         }
+
+        public Task<BackupCleanupResult> CleanOldBackupsAsync(
+            int keepCount = 30, IProgress<string>? progress = null, CancellationToken ct = default)
+        {
+            CleanCalls.Add(keepCount);
+            return Task.FromResult(CleanResult);
+        }
+
+        public List<int> CleanCalls { get; } = [];
+        public BackupCleanupResult CleanResult { get; set; } =
+            new() { Success = true, Message = "已清理", TotalBackups = 5, KeptBackups = 3, RemovedBackups = 2 };
     }
 
     private static void SetEntries(BackupHistoryViewModel vm, BackupHistoryStore? _ = null) { }

@@ -1292,6 +1292,64 @@
           </Border>
         </Grid>
       </TabItem>
+      <TabItem Header="设置">
+        <Grid Margin="16">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="24" />
+            <ColumnDefinition Width="420" />
+          </Grid.ColumnDefinitions>
+
+          <!-- 左列：联网与特征库更新 -->
+          <Border Grid.Column="0" Style="{StaticResource Card}" VerticalAlignment="Top">
+            <StackPanel>
+              <TextBlock Text="特征库在线更新" Style="{StaticResource TitleText}" />
+              <CheckBox Content="启用联网（仅用于检查和下载特征库更新）"
+                        IsChecked="{Binding Settings.EnableNetworking, Mode=TwoWay}"
+                        Margin="0,10,0,0"
+                        ToolTip="默认关闭：不勾选时应用完全不联网。启用后只有「检查更新 / 立即更新」会访问 GitHub。" />
+              <TextBlock Text="{Binding Settings.NetworkNotice}" Style="{StaticResource SecondaryText}"
+                         TextWrapping="Wrap" Margin="0,6,0,0" />
+
+              <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                <Button Content="检查更新" Padding="16,5" Command="{Binding Settings.CheckUpdateCommand}"
+                        ToolTip="下载远程特征库并与本地比较（只读，不写文件）" />
+                <Button Content="立即更新" Padding="16,5" Margin="10,0,0,0"
+                        Command="{Binding Settings.UpdateNowCommand}"
+                        ToolTip="下载新版特征库并保存到用户目录（内置表与程序目录表不会被覆盖）" />
+              </StackPanel>
+
+              <TextBlock Text="{Binding Settings.UpdateStatusText}" TextWrapping="Wrap" Margin="0,12,0,0" />
+              <TextBlock Text="{Binding Settings.ErrorText}" Foreground="#B45309" TextWrapping="Wrap" FontSize="12"
+                         Margin="0,6,0,0" />
+              <TextBlock Style="{StaticResource SecondaryText}" TextWrapping="Wrap" Margin="0,10,0,0"
+                         Text="更新只写入用户层 %ProgramData%\RubbishCleaner\trust-table.json；内置表与程序目录表永远不会被在线内容覆盖，删除该文件即可回退。" />
+            </StackPanel>
+          </Border>
+
+          <!-- 右列：备份维护 -->
+          <Border Grid.Column="2" Style="{StaticResource Card}" VerticalAlignment="Top">
+            <StackPanel>
+              <TextBlock Text="备份维护" Style="{StaticResource TitleText}" />
+              <TextBlock Style="{StaticResource SecondaryText}" TextWrapping="Wrap" Margin="0,6,0,0"
+                         Text="按备份时间保留最新的 N 个备份，更早的移入回收站（可还原，永不直接删除）。" />
+
+              <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                <TextBlock Text="保留数量" VerticalAlignment="Center" />
+                <TextBox Width="64" Margin="8,0,0,0"
+                         Text="{Binding Settings.KeepBackupCountText, UpdateSourceTrigger=PropertyChanged}"
+                         VerticalContentAlignment="Center" HorizontalContentAlignment="Center" />
+                <Button Content="清理旧备份" Padding="12,4" Margin="12,0,0,0"
+                        Command="{Binding Settings.CleanOldBackupsCommand}"
+                        ToolTip="统计备份目录，把保留数量之外的旧备份移入回收站" />
+              </StackPanel>
+
+              <TextBlock Text="每次清理启动项之前都会先备份为 .reg 文件；清理旧备份只是控制这个目录的大小，不影响回滚功能。"
+                         Style="{StaticResource SecondaryText}" TextWrapping="Wrap" Margin="0,10,0,0" />
+            </StackPanel>
+          </Border>
+        </Grid>
+      </TabItem>
     </TabControl>
 
     <!-- 底部状态栏 -->
