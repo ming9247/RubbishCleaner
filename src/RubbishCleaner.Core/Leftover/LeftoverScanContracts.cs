@@ -58,7 +58,18 @@ public sealed class LeftoverScanOptions
     /// <summary>是否统计目录大小（需要遍历子树，大目录会明显变慢）。</summary>
     public bool MeasureSize { get; init; } = true;
 
-    /// <summary>默认扫描根目录（去重后按存在性过滤）。</summary>
+    /// <summary>
+    /// 默认扫描根目录（去重后按存在性过滤）。
+    ///
+    /// <b>为什么必须包含用户主目录</b>：Unix 风格的工具把配置放在 <c>~/.xxx</c>，
+    /// 实测本机主目录下有 24 个点目录（<c>.cc-switch</c>、<c>.codex</c>、<c>.config</c>、
+    /// <c>.nuget</c>…）。v0.3.1 真机卸载 CC Switch 时，残留的
+    /// <c>C:\Users\taco\.cc-switch</c>（821 KB，含配置库与备份）就因为根目录不含
+    /// 用户主目录而<b>完全没被扫到</b>——这是真实的能力缺口，不是理论问题。
+    ///
+    /// 主目录比 AppData 杂得多（有 Desktop/Documents/Downloads 这类目录），
+    /// 因此安全闸门与"短名字只允许全等"的约束在这里尤其重要。
+    /// </summary>
     public static IReadOnlyList<string> DefaultRoots()
     {
         var candidates = new[]
@@ -68,6 +79,7 @@ public sealed class LeftoverScanOptions
             Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
         };
 
         return candidates

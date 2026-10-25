@@ -1,4 +1,4 @@
-namespace RubbishCleaner.Core.Uninstall;
+﻿namespace RubbishCleaner.Core.Uninstall;
 
 /// <summary>卸载执行结果。</summary>
 public sealed record UninstallOutcome(
@@ -98,43 +98,72 @@ public sealed class UninstallExecutor
     /// <param name="command">完整命令行（UninstallString 或 QuietUninstallString）。</param>
     private static System.Diagnostics.ProcessStartInfo BuildStartInfo(string command, bool silent)
     {
-        var executable = Models.RegistryTextSanitizer.TryExtractExecutable(command);
-
         // 静默模式由调用方直接传 QuietUninstallString，这里<b>不自行拼接静默参数</b>：
         // 各软件的静默参数五花八门（/S、/silent、/qn、--silent），猜错会导致卸载异常甚至卡死。
         // 因此 silent 参数只影响日志语义，命令内容完全照抄注册表里的原值。
         _ = silent;
 
-        var arguments = ExtractArguments(command, executable);
+        var (fileName, arguments) = SplitCommand(command);
+
+        var isRooted = Path.IsPathRooted(fileName);
 
         return new System.Diagnostics.ProcessStartInfo
         {
-            FileName = executable ?? command,
+            FileName = fileName,
             Arguments = arguments,
             // 用 ShellExecute 让卸载程序能自己请求提权（很多卸载器清单里要求管理员）
             UseShellExecute = true,
-            WorkingDirectory = executable is not null && Path.IsPathRooted(executable)
-                ? Path.GetDirectoryName(executable) ?? Environment.CurrentDirectory
+            // 只对绝对路径设置工作目录：MsiExec.exe 这类由系统解析的工具，
+            // 强行设到别的目录反而会让它找不到同目录的依赖。
+            WorkingDirectory = isRooted
+                ? Path.GetDirectoryName(fileName) ?? Environment.CurrentDirectory
                 : Environment.CurrentDirectory,
         };
     }
 
-    /// <summary>从完整命令行中剥离可执行文件部分，得到参数。</summary>
-    private static string ExtractArguments(string command, string? executable)
+    /// <summary>
+    /// 把一条完整命令行拆成「可执行文件」与「参数」两段。
+    ///
+    /// <b>为什么不能复用 TryExtractExecutable</b>：那个方法对
+    /// MsiExec.exe /X{GUID} 返回 null（它的职责是"取出可校验的 exe 路径"，
+    /// 而 MSI 没有独立可校验的 exe）。拿 null 做 fallback 会把<b>整条命令行</b>当成文件名，
+    /// 于是 Process.Start 去找一个叫 "MsiExec.exe /X{...}" 的文件，必然失败。
+    ///
+    /// 这个缺陷在 v0.2 就存在，但因为当时"没有真正执行过一次卸载"（见 v0.2 工作日志），
+    /// 一直到 v0.3.1 用真实软件（CC Switch，MSI）验证时才暴露——
+    /// <b>影响本机 27 个 MSI 软件的全部卸载</b>。
+    /// </summary>
+    internal static (string FileName, string Arguments) SplitCommand(string command)
     {
-        if (string.IsNullOrWhiteSpace(executable))
+        if (string.IsNullOrWhiteSpace(command))
         {
-            return string.Empty;
+            return (string.Empty, string.Empty);
         }
 
-        var trimmed = command.Trim();
-        var index = trimmed.IndexOf(executable, StringComparison.OrdinalIgnoreCase);
-        if (index < 0)
+        var lead = command.TrimStart();
+
+        // 形态 1：引号包裹的路径 —— "C:\Program Files\App\uninst.exe" /S
+        if (lead.Length > 1 && lead[0] == '"')
         {
-            return string.Empty;
+            var withoutLead = lead[1..];
+            var closing = withoutLead.IndexOf('"');
+            if (closing > 0)
+            {
+                return (withoutLead[..closing], withoutLead[(closing + 1)..].Trim());
+            }
         }
 
-        var rest = trimmed[(index + executable.Length)..].Trim();
-        return rest.TrimStart('"').Trim();
+        // 形态 2：含 .exe —— C:\App\uninst.exe /allusers 、MsiExec.exe /X{GUID}
+        var exeIndex = lead.IndexOf(".exe", StringComparison.OrdinalIgnoreCase);
+        if (exeIndex > 0)
+        {
+            return (lead[..(exeIndex + 4)], lead[(exeIndex + 4)..].Trim());
+        }
+
+        // 形态 3：没有 .exe 字样，按第一个空格切
+        var space = lead.IndexOf(' ');
+        return space > 0
+            ? (lead[..space], lead[(space + 1)..].Trim())
+            : (lead, string.Empty);
     }
 }

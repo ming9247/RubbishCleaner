@@ -40,13 +40,34 @@ public class LeftoverSafetyGuardTests
     }
 
     [Fact]
-    public void Check_TooShallow_IsRejected()
+    public void Check_ContainerDirectory_IsRejectedByName()
     {
-        // C:\Program Files 只有 2 级（C: + Program Files），默认最小深度 2 时被拒绝
+        // C:\Program Files 只有 2 级，但<b>拒绝它的理由应该是"它是容器目录"</b>，
+        // 而不是"层级浅"——后者会把 D:\CCswitch 这类合法的盘根残留一起误杀。
         var reason = LeftoverSafetyGuard.Check(@"C:\Program Files", Self);
 
         Assert.NotNull(reason);
-        Assert.Contains("层级过浅", reason);
+        Assert.Contains("保留目录名", reason);
+    }
+
+    [Theory]
+    [InlineData(@"D:\CCswitch")]
+    [InlineData(@"E:\MyApp")]
+    public void Check_DriveRootSubdirectory_IsAllowed(string path)
+    {
+        // 实测逼出来的规则：CC Switch 装在 D:\CCswitch（盘符 + 目录名，2 级），
+        // 卸载后整个目录都是残留，必须允许清理。若要求 ≥ 3 级，
+        // "装在盘根下"的软件会被全部判成不可清理。
+        Assert.Null(LeftoverSafetyGuard.Check(path, Self));
+    }
+
+    [Theory]
+    [InlineData(@"C:\Windows")]
+    [InlineData(@"C:\Users")]
+    public void Check_ReservedNameAtDriveRoot_IsStillRejected(string path)
+    {
+        // 层级放宽了，但保留名判断仍然生效：C:\Windows / C:\Users 绝不能被删
+        Assert.NotNull(LeftoverSafetyGuard.Check(path, Self));
     }
 
     [Theory]

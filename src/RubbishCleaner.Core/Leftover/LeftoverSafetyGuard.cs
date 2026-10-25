@@ -110,16 +110,24 @@ public static class LeftoverSafetyGuard
         var trimmed = full.TrimEnd(Path.DirectorySeparatorChar);
         var segments = trimmed.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
 
-        // 盘根也算一级（C:\Foo 的 segments 是 ["C:","Foo"]）
-        if (segments.Length <= minimumDepth)
-        {
-            return $"目录层级过浅（{segments.Length} 级），为避免误删上层目录而拒绝";
-        }
-
         var leaf = Path.GetFileName(trimmed);
+
+        // 保留名优先于层级判断：C:\Program Files 层级只有 2，但要拒绝它的理由
+        // 是"它是容器目录"，不是"它层级浅"。把保留名判断提前，提示才准确。
         if (ReservedNames.Contains(leaf))
         {
             return $"「{leaf}」是系统保留目录名，拒绝删除";
+        }
+
+        // 层级判断只拦"盘根的直接子目录"（C:\Foo 这种）。
+        //
+        // 为什么 minimumDepth 默认是 2 而不是 3：实测 D:\CCswitch 就是 2 级
+        // （盘符 + 目录名），它是一个完全合法、该被清理的残留；要求 3 级会把
+        // "装在盘根下"的软件全部判成不可清理。真正危险的是把 C:\Program Files
+        // 这类容器目录当残留删掉——那由上面的保留名判断与下面的保护路径判断兜住。
+        if (segments.Length < minimumDepth)
+        {
+            return $"目录层级过浅（{segments.Length} 级），为避免误删上层目录而拒绝";
         }
 
         var normalized = trimmed.Replace('/', '\\') + "\\";
