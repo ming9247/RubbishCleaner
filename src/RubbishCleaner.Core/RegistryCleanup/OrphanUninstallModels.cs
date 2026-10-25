@@ -6,8 +6,12 @@ namespace RubbishCleaner.Core.RegistryCleanup;
 /// 一条「孤儿 Uninstall 注册表条目」（v0.4）。
 ///
 /// <b>什么叫孤儿</b>：Windows Installer 自己说"这个产品没装"（
-/// <c>MsiQueryProductState</c> 返回 ABSENT 且 <c>MsiEnumProducts</c> 里没有它），
+/// <c>MsiQueryProductState</c> 返回 ABSENT 且已安装产品列表里没有它），
 /// 但「应用和功能」列表里还留着它的条目——用户点卸载会报错 1639，是纯噪音。
+///
+/// 这里的"已安装产品列表"来自 <c>MsiInterop.EnumerateProducts</c>：v0.4.0 起
+/// 用 <c>MsiEnumProductsExW</c> 覆盖 MACHINE / USERMANAGED / USERUNMANAGED 三个上下文，
+/// 不再只依赖默认上下文的 <c>MsiEnumProducts</c>。
 ///
 /// <b>判据为什么不能用"注册表键在不在"</b>：2026-10-25 真机调研发现
 /// CC Switch 产品完全有效（state=INSTALLED、LocalPackage 存在），

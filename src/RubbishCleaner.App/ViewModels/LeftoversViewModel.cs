@@ -97,6 +97,12 @@ public sealed class RegistryOrphanItemViewModel(Core.RegistryCleanup.OrphanUnins
     public bool CanDelete => Entry.CanDelete;
 
     public string? BlockReason => Entry.BlockReason;
+
+    /// <summary>是否被安全闸门拦下（UI 用它决定要不要显示"不可自动清理"徽标与原因）。</summary>
+    public bool IsBlocked => Entry.BlockReason is not null;
+
+    /// <summary>所在 hive（HKLM / HKCU）：同一份「应用和功能」列表会跨两个 hive，用户复核时需要知道去哪找。</summary>
+    public string HiveText => Entry.HiveName;
 }
 
 /// <summary>
@@ -125,18 +131,31 @@ public sealed class LeftoversViewModel : ObservableObject
     private readonly ILeftoverScanner _scanner;
     private readonly Func<LeftoverCleaner> _cleanerFactory;
 
-    /// <summary>注册表孤儿条目扫描器（v0.4）。</summary>
-    private readonly Core.RegistryCleanup.IOrphanUninstallScanner _registryScanner = new Core.RegistryCleanup.OrphanUninstallScanner();
+    /// <summary>
+    /// 注册表孤儿条目扫描器（v0.4）。
+    ///
+    /// 与 <see cref="_scanner"/> 同理走构造注入而不是就地 new：注册表扫描要读真实 MSI 数据库，
+    /// 硬编码字段会让"扫到 0 条 / 扫到多条 / 扫描抛异常"这些分支在单测里根本触发不到（这是 v0.4.0 的实际状态）。
+    /// </summary>
+    private readonly Core.RegistryCleanup.IOrphanUninstallScanner _registryScanner;
 
-    /// <summary>注册表清理器（v0.4）；备份目录默认在 %LocalAppData%\RubbishCleaner\registry-backups。</summary>
-    private readonly Func<Core.RegistryCleanup.OrphanCleaner> _registryCleanerFactory
-        = () => new Core.RegistryCleanup.OrphanCleaner();
+    /// <summary>注册表清理器工厂（v0.4）；备份目录默认在 %LocalAppData%\RubbishCleaner\registry-backups。</summary>
+    private readonly Func<Core.RegistryCleanup.OrphanCleaner> _registryCleanerFactory;
 
     /// <summary>最近一次注册表扫描的结果。</summary>
     private Core.RegistryCleanup.OrphanScanResult? _registryScan;
 
-    /// <summary>注册表残留项（展示用）。</summary>
+    /// <summary>注册表残留项（全部，判定真相）。</summary>
     public ObservableCollection<RegistryOrphanItemViewModel> RegistryItems { get; } = [];
+
+    /// <summary>
+    /// 注册表残留项（界面绑定的这一份）。
+    ///
+    /// 与文件残留共用同一套筛选条件（关键词 + 只看可清理）。v0.4.0 里注册表区块是直接绑
+    /// <see cref="RegistryItems"/> 的，导致用户输入关键词时只有文件列表在变、注册表那一栏纹丝不动，
+    /// 看起来像筛选没生效——同一页里两套筛选行为是不该出现的。
+    /// </summary>
+    public ObservableCollection<RegistryOrphanItemViewModel> FilteredRegistryItems { get; } = [];
     private readonly Func<InstalledAppsResult> _installedAppsProvider;
     private readonly Func<IReadOnlyList<SoftwareProfile>> _startupProfilesProvider;
 
@@ -151,6 +170,12 @@ public sealed class LeftoversViewModel : ObservableObject
     private LeftoverItemViewModel? _selected;
     private string? _lastScanError;
 
+    /// <summary>是否扫过一次注册表（与文件残留的 HasScanned 同理，用来区分"没扫"和"扫了但为空"）。</summary>
+    private bool _hasRegistryScanned;
+
+    /// <summary>当前选中的注册表行。</summary>
+    private RegistryOrphanItemViewModel? _selectedRegistry;
+
     public LeftoversViewModel()
         : this(
             LeftoverScanner.CreateDefault(),
@@ -161,16 +186,27 @@ public sealed class LeftoversViewModel : ObservableObject
     {
     }
 
+    /// <summary>
+    /// 注入全部外部依赖。
+    ///
+    /// 后两个参数带默认值（传 <c>null</c> 即用生产实现），所以既有调用点
+    /// （<see cref="MainViewModel"/> 的 4 参数构造以及既有单测）无需改动即可编译。
+    /// 注册表这部分单独用命名空间前缀引用，是因为它与文件残留同属"残留"，但实现分属不同子系统。
+    /// </summary>
     public LeftoversViewModel(
         ILeftoverScanner scanner,
         Func<LeftoverCleaner> cleanerFactory,
         Func<InstalledAppsResult> installedAppsProvider,
-        Func<IReadOnlyList<SoftwareProfile>> startupProfilesProvider)
+        Func<IReadOnlyList<SoftwareProfile>> startupProfilesProvider,
+        Core.RegistryCleanup.IOrphanUninstallScanner? registryScanner = null,
+        Func<Core.RegistryCleanup.OrphanCleaner>? registryCleanerFactory = null)
     {
         _scanner = scanner;
         _cleanerFactory = cleanerFactory;
         _installedAppsProvider = installedAppsProvider;
         _startupProfilesProvider = startupProfilesProvider;
+        _registryScanner = registryScanner ?? new Core.RegistryCleanup.OrphanUninstallScanner();
+        _registryCleanerFactory = registryCleanerFactory ?? (() => new Core.RegistryCleanup.OrphanCleaner());
 
         ScanCommand = new AsyncRelayCommand(ScanAsync, () => !IsScanning)
         {
@@ -200,6 +236,10 @@ public sealed class LeftoversViewModel : ObservableObject
             {
                 Log.Error("注册表残留扫描失败", ex);
                 LastScanError = $"注册表扫描失败：{ex.Message}";
+
+                // 除 LastScanError 之外还要改 StatusText：注册表区块的底部状态栏只绑了 StatusText，
+                // 只设错误字段的话用户点完扫描会看到状态栏停在"正在检查…"不动，误以为还在跑。
+                StatusText = $"注册表扫描失败：{ex.Message}";
                 IsScanning = false;
             },
         };
@@ -329,6 +369,7 @@ public sealed class LeftoversViewModel : ObservableObject
             if (SetProperty(ref _filterText, value))
             {
                 ApplyFilter();
+                ApplyRegistryFilter();
             }
         }
     }
@@ -342,6 +383,7 @@ public sealed class LeftoversViewModel : ObservableObject
             if (SetProperty(ref _showOnlyCleanable, value))
             {
                 ApplyFilter();
+                ApplyRegistryFilter();
             }
         }
     }
@@ -384,16 +426,122 @@ public sealed class LeftoversViewModel : ObservableObject
     /// <summary>注册表残留条数（孤儿 Uninstall 条目）。</summary>
     public int RegistryCount => RegistryItems.Count;
 
-    /// <summary>可清理的注册表条数。</summary>
+    /// <summary>可清理的注册表条数（通过安全闸门、即 <c>BlockReason</c> 为空）。</summary>
     public int RegistryCleanableCount => RegistryItems.Count(i => i.CanDelete);
 
     public bool HasRegistryResidue => RegistryItems.Count > 0;
 
+    /// <summary>
+    /// 是否已经扫过一次注册表。
+    ///
+    /// 必须与 <see cref="HasRegistryResidue"/> 分开：<b>"还没扫"</b>和<b>"扫过但一条都没有"</b>
+    /// 对用户是两件完全不同的事——前者要提示他去点扫描，后者要恭喜他注册表是干净的。
+    /// 只用一个 <c>Count == 0</c> 判断会把这两种状态压成一句话（文件残留那边就是靠 HasScanned 区分的）。
+    /// </summary>
+    public bool HasRegistryScanned
+    {
+        get => _hasRegistryScanned;
+        private set
+        {
+            if (SetProperty(ref _hasRegistryScanned, value))
+            {
+                // 三个派生可见性都依赖它：漏通知会导致"第一次扫描完成后列表不显示"这种
+                // 只在真实 UI 上才看得见的问题（属性本身对，界面不刷新）。
+                OnPropertyChanged(nameof(ShowRegistryEmptyState));
+                OnPropertyChanged(nameof(ShowRegistryCleanState));
+                OnPropertyChanged(nameof(ShowRegistryList));
+                OnPropertyChanged(nameof(ShowRegistryFilterEmpty));
+                OnPropertyChanged(nameof(RegistrySummaryText));
+            }
+        }
+    }
+
+    /// <summary>注册表区块的空状态：还没扫过（提示"去点扫描"）。</summary>
+    public bool ShowRegistryEmptyState => !HasRegistryScanned;
+
+    /// <summary>注册表区块的"干净"状态：扫过、但一条孤儿都没有（这是好消息，要单独说）。</summary>
+    public bool ShowRegistryCleanState => HasRegistryScanned && RegistryCount == 0;
+
+    /// <summary>注册表区块的"有内容"状态：有条目可显示。</summary>
+    public bool ShowRegistryList => HasRegistryScanned && RegistryCount > 0;
+
+    /// <summary>
+    /// 注册表筛选后是不是空的。
+    ///
+    /// 单独一条属性是为了给"筛选把条目全滤掉了"一句明确提示：
+    /// 否则用户会看到区块标题写着"残留 5 条"、下面却是白板，以为界面坏了。
+    /// </summary>
+    public bool ShowRegistryFilterEmpty => ShowRegistryList && FilteredRegistryItems.Count == 0;
+
+    /// <summary>
+    /// 注册表区块的语义化小标题：<b>"注册表残留 N 条、可清理 M 条"</b>。
+    ///
+    /// 单独给一条属性而不是让 XAML 里拼 Run：一是中文里"条"这类量词与数字的语序写死在视图里难改，
+    /// 二是这句话同时要说明"一共看了多少条 MSI 条目"，否则用户会以为扫了全盘注册表。
+    /// </summary>
+    public string RegistrySummaryText
+    {
+        get
+        {
+            if (!HasRegistryScanned)
+            {
+                return "还没有检查注册表";
+            }
+
+            var scanned = _registryScan?.ScannedCount ?? 0;
+
+            if (RegistryCount == 0)
+            {
+                return $"注册表干净：已检查 {scanned} 个 MSI 条目，没有发现孤儿";
+            }
+
+            var text = $"注册表残留 {RegistryCount} 条、可清理 {RegistryCleanableCount} 条";
+
+            var blocked = RegistryCount - RegistryCleanableCount;
+            if (blocked > 0)
+            {
+                text += $"（其余 {blocked} 条被安全闸门拦下）";
+            }
+
+            return text;
+        }
+    }
+
+    /// <summary>
+    /// 注册表清理按钮文案。
+    ///
+    /// 三种状态必须给三种话，而不是"可清理数为 0 就写无残留"：
+    /// 扫到 3 条但全被安全闸门拦下时，按钮若写「无注册表残留」，用户会以为扫描没生效。
+    /// 文件残留那边同样是这个教训（扫描到但不可清理 ≠ 没扫到）。
+    /// </summary>
     public string RegistryButtonText => RegistryCleanableCount > 0
         ? $"清理 {RegistryCleanableCount} 个注册表残留"
-        : "无注册表残留";
+        : RegistryCount > 0
+            ? "无可清理项"
+            : "无注册表残留";
 
     public bool CanCleanRegistry => RegistryCleanableCount > 0 && !IsScanning;
+
+    /// <summary>
+    /// 当前选中的注册表行（UI 用它显示完整键路径与被拦下的原因）。
+    ///
+    /// 注册表条目不像目录那样能"打开所在文件夹"，用户唯一的复核手段就是在界面上看到键路径，
+    /// 所以选中态必须能拿到整行而不是只有展示名。
+    /// </summary>
+    public RegistryOrphanItemViewModel? SelectedRegistry
+    {
+        get => _selectedRegistry;
+        set
+        {
+            if (SetProperty(ref _selectedRegistry, value))
+            {
+                OnPropertyChanged(nameof(HasSelectedRegistry));
+            }
+        }
+    }
+
+    /// <summary>是否有选中的注册表行（供详情区显示/隐藏）。</summary>
+    public bool HasSelectedRegistry => SelectedRegistry is not null;
 
     /// <summary>
     /// 显示一次<b>定向</b>扫描结果（v0.3.1 卸载联动）。
@@ -634,11 +782,20 @@ public sealed class LeftoversViewModel : ObservableObject
         LastScanError = null;
         StatusText = "正在检查注册表中的孤儿卸载条目…";
         RegistryItems.Clear();
+
+        // 选中项要跟着清掉：它指向的对象刚被 Clear 掉，留着会让详情区显示一条已经不存在的条目。
+        SelectedRegistry = null;
+        ApplyRegistryFilter();
         NotifyRegistryChanged();
 
         try
         {
-            var result = await _registryScanner.ScanAsync().ConfigureAwait(true);
+            var progress = new Progress<Core.RegistryCleanup.OrphanScanProgress>(p =>
+            {
+                StatusText = string.IsNullOrWhiteSpace(p.Detail) ? p.Stage : $"{p.Stage}（{p.Detail}）";
+            });
+
+            var result = await _registryScanner.ScanAsync(progress).ConfigureAwait(true);
             _registryScan = result;
 
             foreach (var entry in result.Entries)
@@ -646,12 +803,20 @@ public sealed class LeftoversViewModel : ObservableObject
                 RegistryItems.Add(new RegistryOrphanItemViewModel(entry));
             }
 
+            // 先置 true 再通知：RegistrySummaryText 与三个可见性属性都依赖它，
+            // 顺序反了首屏会先闪一下"还没有检查注册表"，而且列表要等下次通知才出现。
+            HasRegistryScanned = true;
+
+            // 筛选条件要延续：用户在扫描前输入的关键词，扫描完成后仍然生效。
+            ApplyRegistryFilter();
             NotifyRegistryChanged();
 
             StatusText = result.Entries.Count == 0
                 ? $"注册表检查完成：{result.ScannedCount} 个 MSI 条目全部有效，没有孤儿条目"
                 : $"注册表检查完成：{result.ScannedCount} 个 MSI 条目中发现 {result.Entries.Count} 个孤儿";
 
+            // 降级说明要覆盖而不是保留上一次的：文件残留那边的 DegradedText 可能来自上一轮文件扫描，
+            // 直接 Append 会让用户以为注册表扫描也出了那个问题。
             if (result.IsDegraded)
             {
                 DegradedText = result.DegradedReason;
@@ -667,13 +832,31 @@ public sealed class LeftoversViewModel : ObservableObject
 
     /// <summary>
     /// 清理注册表孤儿条目：逐条备份 → 删键 → 复核。
+    ///
+    /// 与文件残留的 <see cref="CleanAsync"/> 有一处刻意不同：<b>没有可清理项时连清理器都不创建</b>。
+    /// 文件那边是先建 cleaner 再让 BuildPlan 返回空计划，那是因为"空计划"本身有诊断价值（能列出被闸门拦下的原因）；
+    /// 注册表的门禁在扫描阶段就已经把 <c>BlockReason</c> 写在条目上了，UI 也直接展示，
+    /// 再走一遍工厂只会多一次对备份目录/MSI 的探测——尤其是工厂在生产环境里会触碰真实注册表读取路径。
     /// </summary>
     public async Task CleanRegistryAsync()
     {
+        if (RegistryCleanableCount == 0)
+        {
+            NotifyHandler(
+                "没有可清理项",
+                RegistryCount == 0
+                    ? "当前没有注册表残留。"
+                    : "发现的注册表条目都不满足自动清理条件：\n\n"
+                      + string.Join('\n', RegistryItems.Where(i => !i.CanDelete).Take(10)
+                          .Select(i => $"· {i.DisplayName}：{i.BlockReason}")));
+            return;
+        }
+
         var cleaner = _registryCleanerFactory();
         var entries = RegistryItems.Where(i => i.CanDelete).Select(i => i.Entry).ToList();
         var plan = cleaner.BuildPlan(entries);
 
+        // 兜底：UI 计数与清理器判定不一致时（例如条目在两者之间失效），仍按"不弹确认、不动手"处理。
         if (plan.IsEmpty)
         {
             NotifyHandler("没有可清理项", "当前没有可自动清理的注册表残留。");
@@ -730,9 +913,46 @@ public sealed class LeftoversViewModel : ObservableObject
         OnPropertyChanged(nameof(RegistryCount));
         OnPropertyChanged(nameof(RegistryCleanableCount));
         OnPropertyChanged(nameof(HasRegistryResidue));
+        OnPropertyChanged(nameof(RegistrySummaryText));
         OnPropertyChanged(nameof(RegistryButtonText));
         OnPropertyChanged(nameof(CanCleanRegistry));
+        OnPropertyChanged(nameof(ShowRegistryCleanState));
+        OnPropertyChanged(nameof(ShowRegistryList));
+        OnPropertyChanged(nameof(ShowRegistryFilterEmpty));
         System.Windows.Input.CommandManager.InvalidateRequerySuggested();
+    }
+
+    /// <summary>
+    /// 按同一套条件筛注册表条目：关键词匹配显示名 / 产品码 / 发行商 / 完整键路径。
+    ///
+    /// 比文件残留多了产品码与完整路径两个匹配字段：注册表条目的"名字"经常是脏数据或空的，
+    /// 用户手上真正能拿来搜的往往就是 GUID 或键路径。
+    /// </summary>
+    private void ApplyRegistryFilter()
+    {
+        FilteredRegistryItems.Clear();
+
+        var keyword = FilterText.Trim();
+        foreach (var item in RegistryItems)
+        {
+            if (ShowOnlyCleanable && !item.CanDelete)
+            {
+                continue;
+            }
+
+            if (keyword.Length > 0
+                && !item.DisplayName.Contains(keyword, StringComparison.OrdinalIgnoreCase)
+                && !item.ProductCode.Contains(keyword, StringComparison.OrdinalIgnoreCase)
+                && !item.Publisher.Contains(keyword, StringComparison.OrdinalIgnoreCase)
+                && !item.FullPath.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            FilteredRegistryItems.Add(item);
+        }
+
+        OnPropertyChanged(nameof(ShowRegistryFilterEmpty));
     }
 
     private void ApplyFilter()

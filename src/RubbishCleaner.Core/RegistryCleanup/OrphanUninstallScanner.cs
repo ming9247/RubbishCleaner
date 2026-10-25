@@ -11,7 +11,11 @@ namespace RubbishCleaner.Core.RegistryCleanup;
 /// 两条同时成立才算孤儿：
 /// <list type="number">
 /// <item><c>MsiQueryProductState</c> 返回 ABSENT（1/2/3）；</item>
-/// <item><c>MsiEnumProducts</c> 的已安装列表里<b>没有</b>它。</item>
+/// <item>已安装产品列表里<b>没有</b>它。
+/// 该列表由 <c>MsiInterop.EnumerateProducts</c> 提供，v0.4.0 起覆盖
+/// MACHINE / USERMANAGED / USERUNMANAGED 三个安装上下文
+/// （原来的 <c>MsiEnumProducts</c> 只覆盖当前用户 + 默认机器上下文，
+/// 漏掉的上下文会让在装的产品被误判成孤儿）。</item>
 /// </list>
 ///
 /// <b>刻意不看的东西</b>（每一条都是真机调研换来的）：
@@ -211,7 +215,7 @@ public sealed class OrphanUninstallScanner : IOrphanUninstallScanner
         var evidence = new List<string>
         {
             $"Windows Installer 报告该产品未安装：{MsiInterop.DescribeState(state)}",
-            "该产品不在已安装产品列表中（MsiEnumProducts 交叉验证）",
+            "该产品不在已安装产品列表中（机器/每用户托管/每用户非托管三个上下文交叉验证）",
             $"应用和功能列表里仍保留此条目：{productCode}",
         };
 

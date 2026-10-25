@@ -1,19 +1,20 @@
 # RubbishCleaner
 
 > 轻量、便捷、易操作的 Windows 流氓软件检测与残留清理工具
-> 当前版本：**v0.3.1**（自启动检测 + 流氓评分 + 残留启动项清理 + 软件列表与协助卸载 + 残留目录扫描与可还原清理 + **卸载后自动扫残留** + WPF 界面 + UAC 提权）
+> 当前版本：**v0.4.1**（自启动检测 + 流氓评分 + 残留启动项清理 + 软件列表与协助卸载 + 残留目录扫描与可还原清理 + 卸载后自动扫残留 + **注册表孤儿条目清理**（v0.4.0 引入，v0.4.1 加固）+ WPF 界面 + UAC 提权）
 
 ---
 
 ## 这是什么
 
-一款面向 Windows 普通用户的绿色工具，解决四件事：
+一款面向 Windows 普通用户的绿色工具，解决六件事：
 
 1. **检测** —— 找出开机自启动、后台常驻、无界面、无图标的可疑软件
 2. **协助卸载** —— 调用软件自带卸载程序，先备份、再确认
 3. **清理启动项残留** —— 识别并清理失效启动项（v0.1.3+）
 4. **清理文件残留** —— 全盘秒级索引，找出已卸载软件留下的目录，**移入回收站**而非删除（v0.3）
 5. **卸载后自动扫残留** —— 卸载前自动记录快照，卸载完直接给出确定性残留清单（v0.3.1）
+6. **清理注册表残留** —— 只清 MSI 孤儿 Uninstall 条目（「应用和功能」里点了报 1639 的纯噪音），先备份 `.reg` 再删（v0.4.0 引入，v0.4.1 加固）
 
 设计原则：**越轻量、越便捷、越易操作越好**。用完即走，不常驻后台，不弹广告。
 
@@ -31,8 +32,15 @@
 # 无界面冒烟扫描（不需要管理员，只读）
 dotnet run --project tools/RubbishCleaner.Smoke
 
-# 运行主程序（会请求管理员权限）
-dotnet run --project src/RubbishCleaner.App
+# 注册表清理的真机 E2E（造一个孤儿条目 → 扫描 → 备份 → 删键 → 还原 → 现场清理）
+.\scripts\e2e-registry.ps1
+
+# 运行主程序
+#   注意：app.manifest 是 requireAdministrator，所以**不能**用 dotnet run 启动
+#   （dotnet run 拉起的进程拿不到提权，会报"请求的操作需要提升"）。
+#   直接启动 exe，或先提权再运行 dll：
+#     .\src\RubbishCleaner.App\bin\Debug\net8.0-windows\RubbishCleaner.exe
+#     dotnet .\src\RubbishCleaner.App\bin\Debug\net8.0-windows\RubbishCleaner.dll   # 需要已提权的终端
 
 # 发布单文件绿色版
 .\scripts\publish.ps1
@@ -61,6 +69,9 @@ dotnet run --project src/RubbishCleaner.App
 | 软件列表 | 从 Uninstall 注册表聚合已安装软件（实测 520 条原始项过滤到 114 个真软件），支持按名称/发行商搜索 |
 | 协助卸载 | 调用软件**自带**卸载程序，卸载前三道检查（命令存在/系统工具拦截/程序存在），不做任何强制删除 |
 | 脏数据清洗 | 第三方安装器写坏的注册表字符串自动截断（实测「明日之后」条目整片乱码） |
+
+> 表里最后三行（软件列表 / 协助卸载 / 脏数据清洗）实际是 **v0.2** 的工作，
+> 因为卸载引擎与软件列表是同一批数据的两面，放在一起读更连贯；v0.2 的完整设计见技术设计文档 §12.1。
 
 **v0.1 明确不做**：任何自动删除。只展示与解释，处置权完全交给用户（合规要求）。
 
@@ -105,23 +116,136 @@ dotnet run --project src/RubbishCleaner.App
 
 ---
 
+## v0.4.0 新增：注册表清理（v0.4.1 加固）
+
+文件删错能从回收站还原，注册表键删错则可能是"软件报错 / 系统组件加载失败"。
+所以这一版**先把范围收窄到一种确定无害的形态**，再谈清理。
+
+### 什么叫「孤儿 Uninstall 条目」
+
+Windows Installer 已经不认这个产品了，但「设置 → 应用和功能」列表里还留着它的名字：
+
+| 现象 | 实际情况 |
+|------|---------|
+| 列表里看得到这个软件 | Uninstall 注册表条目还在 |
+| 点「卸载」 | 报错 **1639**（无效命令行参数）——MSI 认为这个产品不存在 |
+| 结果 | 用户删不掉、看着碍眼，纯噪音 |
+
+删掉这条注册表条目只是清除噪音：**不动软件文件、不动 MSI 内部结构、不影响任何还在正常工作的软件**。
+
+### 判据：只信 Windows Installer 自己的回答
+
+两条**同时成立**才算孤儿：
+
+| # | 检查 | API |
+|---|------|-----|
+| 1 | 产品状态为「未安装」 | `MsiQueryProductStateW(guid)` 返回 ABSENT（1/2/3）或 `ERROR_UNKNOWN_PRODUCT`（从未安装过） |
+| 2 | 已安装产品列表里没有它 | `MsiEnumProductsExW` 遍历的集合中**不包含**该 GUID |
+
+任一条说"还在"就跳过。两个 API 打架时也跳过——**不确定就不报**。
+
+产品列表要枚举三个安装上下文（`MACHINE` / `USERMANAGED` / `USERUNMANAGED`）取并集。
+只用旧 `MsiEnumProductsW` 会看不到每用户安装的产品，**漏枚举的后果就是把在装的产品判成孤儿、然后误删**。
+本机只读实测：旧 API 344 个，三上下文并集也是 344 个（MACHINE 338 / USERMANAGED 0 / USERUNMANAGED 6），双向差集 0。
+
+> **刻意不用「`Classes\Installer\Products\{GUID}` 键是否存在」判孤儿。**
+> 2026-10-25 真机反例（CC Switch）：`MsiQueryProductState` 返回 **5 = INSTALLED**、
+> `LocalPackage` 指向的 msi 文件确实存在、`MsiEnumProducts` 也包含它，
+> 但 `Classes\Installer\Products\{GUID}`、`UserData\<SID>\Products\{GUID}` **全都不存在**，
+> `reg query /s /f {GUID}` 也是 0 命中。
+> 按"键不存在 = 僵尸"这条草案判据上线，会把一个好好装着的软件删掉卸载入口。
+
+同理也不看 `InstallLocation` 目录在不在（用户手动删目录很常见，但产品其实有效）、
+不看 `LocalPackage` 在不在（`C:\Windows\Installer` 缓存可能被清过）。
+
+### 七道闸门 R1–R7
+
+| # | 闸门 | 拦的是什么 |
+|---|------|-----------|
+| R1 | 键名必须严格匹配 `{8-4-4-4-12}` GUID | 防止误删 `Uninstall\某软件` 这类非 GUID 键 |
+| R2 | 拒绝 `Uninstall` 根键本身（**最先判**） | 删它等于清空整个已安装列表；放最前面是因为它拦的是最坏情况 |
+| R3 | 必须是 `...\Uninstall\{GUID}`，只差一层 | 防止路径拼接错误删到上层 |
+| R4 | **执行前重新查一次** MSI 状态，必须仍是 ABSENT | 扫描到点确认之间产品可能被重装 |
+| R5 | 再确认一次不在 `MsiEnumProducts` 列表 | 两个 API 打架时不删 |
+| R6 | **备份必须写入成功且文件非空**，否则不删 | 备份是底线 |
+| R7 | 删除后复核键确实不存在 | 与 v0.1.3 的 `RegistryWriter` 同一约定 |
+
+### 备份与还原
+
+| 项目 | 说明 |
+|------|------|
+| 格式 | 标准 `.reg`（`Windows Registry Editor Version 5.00`），**UTF-16LE + BOM** |
+| 还原方式 | **双击该 .reg 文件**即可；不装本工具也能还原 |
+| 备份目录 | `%LocalAppData%\RubbishCleaner\registry-backups` |
+| 文件名 | `orphan-{GUID}-{yyyyMMddHHmmss}.reg` |
+| 内容完整性 | 递归导出**子键**，不只是值——删键走的是 `DeleteSubKeyTree` 整棵子树，只备份值就等于丢了子键 |
+
+两个细节都是**为了让"还原"真的成立**，不是随意选择：
+
+- **编码必须是 UTF-16LE + BOM**：v0.1.3 实测过，UTF-8 的 `.reg` 里中文经 `reg import` 会变成问号。
+- **32 位视图必须写成物理路径 `...\WOW6432Node\...`**：`reg import` 和双击导入都**没有视图开关**。
+  若把 32 位视图里打开的路径原样写成 `HKEY_LOCAL_MACHINE\SOFTWARE\...`，
+  导入时只会落到 64 位视图，备份等于白做。
+  （`HKCU` 相反：实测它不做 WOW64 重定向，两个视图是同一份数据，
+  而 `HKCU\SOFTWARE\WOW6432Node\...` 这个路径根本不存在，硬写反而会还原到错误位置。）
+
+> **这一版允许删键**，与 v0.1.3「只删值不删键」并不矛盾：
+> 一个 `Run` 键下挂着多个软件的值，删键会误伤（ADR-019）；
+> 而 `Uninstall\{GUID}` 是**一个产品一个键**，键下所有值都属于这个产品，删键是安全的。
+
+### 界面上怎么用
+
+残留扫描页里单独一块「注册表」，与文件残留**分开扫描、分开列出**
+（两者判据完全不同，混在一起用户分不清扫的是磁盘还是注册表）。
+
+| 状态 | 界面说什么 |
+|------|-----------|
+| 还没扫过 | 提示去点「扫描注册表残留」 |
+| 扫过、干净 | 明确告诉你「注册表干净：已检查 N 个 MSI 条目，没有发现孤儿」 |
+| 有孤儿 | 标题写「注册表残留 N 条、可清理 M 条（其余 K 条被安全闸门拦下）」 |
+| 筛选后无匹配 | 单独提示「当前筛选无匹配」，而不是留一片白板 |
+
+- 列表支持和文件残留**同一套筛选**（关键词 + 只看可清理），关键词能搜显示名、**产品码**、发行商、**完整键路径**——
+  因为注册表条目的名字经常是脏数据或空的，你手上真正能拿来搜的往往就是 GUID 或键路径。
+- **筛选只影响显示，不会缩小实际清理范围**：清理永远针对全部孤儿条目。
+- 选中任意一行，能看到**完整键路径**、所在分支，以及被安全闸门拦下的具体原因。
+- 清理按钮文案分三态：`清理 N 个注册表残留` / `无可清理项`（有条目但全被拦下）/ `无注册表残留`。
+
+### 明确不做
+
+| 不做 | 理由 |
+|------|------|
+| `HKCR` 下的任何键 | COM 组件引用，删错会让软件加载失败 |
+| `HKLM\SYSTEM` | 驱动与服务，蓝屏风险 |
+| `Software\{Vendor}` 厂商根目录 | 里面可能挂着多个软件，无法判断归属 |
+| 孤儿 CLSID / 文件关联 | 需要解析 COM 引用计数，误报率不可接受 → **推到 v0.5** |
+| 非 MSI 的 Uninstall 条目 | 没有可靠的"产品是否还存在"判据 |
+| MSI 内部结构（`Installer\UserData`、`Installer\Folders`） | 该由 Windows Installer 自己维护，不该手改 |
+
+---
+
 ## 项目结构
 
 ```
 Rubbish-cleaner/
 ├── src/
-│   ├── RubbishCleaner.App/        # WPF 主程序（UI）
-│   ├── RubbishCleaner.Core/       # 核心引擎（检测 / 评分 / 确认表）
-│   └── RubbishCleaner.Common/     # Win32 / 注册表 / 签名 / 日志
-├── tests/RubbishCleaner.Core.Tests/
-├── tools/RubbishCleaner.Smoke/    # 无界面冒烟验证工具
+│   ├── RubbishCleaner.App/        # WPF 主程序（UI，三个页签）
+│   ├── RubbishCleaner.Core/       # 核心引擎（检测 / 评分 / 确认表 / 清理）
+│   │   └── RegistryCleanup/       # 注册表孤儿 Uninstall 条目（v0.4，详见文末目录说明）
+│   └── RubbishCleaner.Common/     # Win32 / 注册表 / 签名 / 日志 / 文件索引
+├── tests/
+│   ├── RubbishCleaner.Core.Tests/ # Core 逻辑与安全闸门（337 项）
+│   └── RubbishCleaner.App.Tests/  # 排序 / 导出 / ViewModel / 注册表交互（130 项）
+├── tools/
+│   ├── RubbishCleaner.Smoke/      # 无界面冒烟验证工具
+│   └── RubbishCleaner.RegE2E/     # 注册表清理真机 E2E 探针（造孤儿 → 删 → reg import 还原）
 ├── docs/
 │   ├── planning/                  # 产品文档
-│   ├── technical/                 # 技术设计文档
+│   ├── technical/                 # 技术设计文档（含 ADR）
 │   ├── environment/               # 环境清单
-│   └── progress/                  # 进度与开发日志
-├── scripts/                       # build / test / publish / probe-env
-└── work-logs/
+│   └── progress/                  # 进度文档与界面实拍
+├── scripts/                       # build / test / publish / probe-env / e2e-registry
+└── work-logs/                     # 按日期的开发日志
 ```
 
 ---
@@ -153,13 +277,24 @@ src/RubbishCleaner.Core/Residue/                  # 卸载与残留联动（v0.3
 src/RubbishCleaner.App/ViewModels/UninstallResidueCoordinator.cs # 联动编排
 ```
 
+## 目录说明（v0.4 新增部分）
+
+```
+src/RubbishCleaner.Core/RegistryCleanup/
+├── MsiInterop.cs                  # msi.dll 最小封装：产品状态 / 三上下文产品枚举 / 属性读取
+├── OrphanUninstallModels.cs       # 孤儿条目模型 + 扫描契约（IOrphanUninstallScanner）
+├── OrphanUninstallScanner.cs      # 只读扫描：MSI 双确认判孤儿，绝不动注册表
+├── OrphanCleaner.cs               # 清理计划 + 执行：复核 → 备份 → 删键 → 再复核
+└── RegistryKeyBackupWriter.cs     # 导出键及其子键为 .reg（UTF-16LE+BOM，32 位视图写 WOW6432Node）
+```
+
 ---
 
 ## 技术栈
 
 - C# / .NET 8 / WPF
 - 零第三方运行时依赖（仅测试用 xUnit）
-- P/Invoke：`user32`、`kernel32`、`wintrust`、Shell COM
+- P/Invoke：`user32`、`kernel32`、`wintrust`、`msi.dll`、Shell COM
 
 ---
 
@@ -170,3 +305,5 @@ src/RubbishCleaner.App/ViewModels/UninstallResidueCoordinator.cs # 联动编排
 - 检测结果是**建议性**的，请结合证据自行判断。
 - 评分与残留判定都基于启发式规则，可能存在误报；命中白名单的程序会被压制为"正常"。
 - 残留扫描默认不扫系统目录，也不扫本工具自己的数据目录（那里是清理备份）。
+- 注册表清理**只删 Uninstall 注册表条目**，不动任何软件文件，也不动 `HKCR` / `HKLM\SYSTEM` / 厂商根目录；
+  删之前一律先导出 `.reg`，还原只需双击该文件。

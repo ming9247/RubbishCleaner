@@ -231,7 +231,7 @@
           <Image Source="/app.ico" Width="22" Height="22" VerticalAlignment="Center"
                  RenderOptions.BitmapScalingMode="HighQuality" />
           <TextBlock Text="RubbishCleaner" Style="{StaticResource TitleText}" Margin="8,0,0,0" />
-          <TextBlock Text="v0.4.0" Style="{StaticResource SecondaryText}" Margin="8,4,0,0" />
+          <TextBlock Text="v0.4.1" Style="{StaticResource SecondaryText}" Margin="8,4,0,0" />
         </StackPanel>
 
         <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">
@@ -647,7 +647,8 @@
             <Grid>
               <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
-                <RowDefinition Height="*" />
+                <RowDefinition Height="*" MinHeight="110" />
+                <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
               </Grid.RowDefinitions>
 
@@ -757,45 +758,143 @@
                 </ListBox.ItemTemplate>
               </ListBox>
 
-              <!-- v0.4：注册表残留（与文件残留并列但分开滚动） -->
-              <Border Grid.Row="1" Background="#FFF8F8" BorderBrush="{StaticResource BorderBrush}"
-                      BorderThickness="0,1,0,0" MaxHeight="220"
-                      Visibility="{Binding Leftovers.HasRegistryResidue, Converter={StaticResource BoolToVisibility}}">
-                <StackPanel>
-                  <TextBlock Margin="10,8,10,4" FontWeight="SemiBold" Foreground="#991B1B">
-                    <Run Text="注册表残留：" /><Run Text="{Binding Leftovers.RegistryCount, Mode=OneWay}" /><Run Text=" 个孤儿条目（点卸载会报错）" />
-                  </TextBlock>
+              </Grid>
 
-                  <ListBox ItemsSource="{Binding Leftovers.RegistryItems}" BorderThickness="0" Background="Transparent"
-                           ScrollViewer.HorizontalScrollBarVisibility="Disabled" MaxHeight="180">
+              <!--
+                v0.4：注册表残留区块。
+
+                刻意做成独立的一段（自己的 Grid.Row + 自己的滚动条），而不是塞进文件残留那个 ListBox 里：
+                两者是两类不同的东西（磁盘目录 vs「应用和功能」条目），处置方式也不同（移入回收站 vs 删键+备份），
+                混在一个滚动区里用户会以为它们是一回事（v0.4.0 就是这样，收口时改掉）。
+                三种空态各有各的话：没扫过 / 扫过且干净 / 筛掉了，不能共用一句"没有数据"。
+              -->
+              <Border Grid.Row="2" Background="#FFF8F8" BorderBrush="{StaticResource BorderBrush}"
+                      BorderThickness="0,1,0,0">
+                <Grid>
+                  <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" MinHeight="72" />
+                    <RowDefinition Height="Auto" />
+                  </Grid.RowDefinitions>
+
+                  <!-- 区块标题：语义化文案「注册表残留 N 条、可清理 M 条」由 VM 拼好，
+                       避免在视图里拼中文量词（改文案时要动 XAML，容易两边不同步） -->
+                  <!-- 这里只放标题与语义文案，不再复刻一个"扫描注册表残留"按钮：
+                       同一个页面上两个同名按钮会让人犹豫该点哪个，入口统一留在左侧操作栏。 -->
+                  <StackPanel Grid.Row="0" Margin="10,8,10,4">
+                    <TextBlock Text="注册表残留（「应用和功能」里的孤儿条目）" FontWeight="SemiBold"
+                               Foreground="#991B1B" />
+                    <TextBlock Text="{Binding Leftovers.RegistrySummaryText}" Style="{StaticResource SecondaryText}"
+                               TextWrapping="Wrap" Margin="0,2,0,0" />
+                  </StackPanel>
+
+                  <!-- 表头：名称 / 版本 / 发行商 / 状态（状态是 MSI 的中文说明，用户复核的关键） -->
+                  <Border Grid.Row="1" Background="#FDF1F1" BorderBrush="{StaticResource BorderBrush}"
+                          BorderThickness="0,1,0,1" Padding="10,5"
+                          Visibility="{Binding Leftovers.ShowRegistryList, Converter={StaticResource BoolToVisibility}}">
+                    <Grid>
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" MinWidth="150" />
+                        <ColumnDefinition Width="90" />
+                        <ColumnDefinition Width="130" />
+                        <ColumnDefinition Width="210" />
+                      </Grid.ColumnDefinitions>
+                      <TextBlock Grid.Column="0" Text="名称" Style="{StaticResource SecondaryText}" />
+                      <TextBlock Grid.Column="1" Text="版本" Style="{StaticResource SecondaryText}" />
+                      <TextBlock Grid.Column="2" Text="发行商" Style="{StaticResource SecondaryText}" />
+                      <TextBlock Grid.Column="3" Text="状态" Style="{StaticResource SecondaryText}" />
+                    </Grid>
+                  </Border>
+
+                  <!-- 条目列表：绑 FilteredRegistryItems，与文件残留共用同一套筛选条件 -->
+                  <ListBox Grid.Row="2" ItemsSource="{Binding Leftovers.FilteredRegistryItems}"
+                           SelectedItem="{Binding Leftovers.SelectedRegistry, Mode=TwoWay}"
+                           BorderThickness="0" Background="Transparent" MaxHeight="150"
+                           ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                           Visibility="{Binding Leftovers.ShowRegistryList, Converter={StaticResource BoolToVisibility}}">
                     <ListBox.ItemTemplate>
                       <DataTemplate>
                         <Border BorderBrush="#F0D0D0" BorderThickness="0,0,0,1" Padding="10,5">
-                          <StackPanel>
-                            <StackPanel Orientation="Horizontal">
-                              <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" />
-                              <TextBlock Text="{Binding VersionText}" Margin="8,0,0,0" Style="{StaticResource SecondaryText}" />
-                              <TextBlock Text="{Binding Publisher}" Margin="8,0,0,0" Style="{StaticResource SecondaryText}" />
+                          <Grid>
+                            <Grid.ColumnDefinitions>
+                              <ColumnDefinition Width="*" MinWidth="150" />
+                              <ColumnDefinition Width="90" />
+                              <ColumnDefinition Width="130" />
+                              <ColumnDefinition Width="210" />
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Grid.Column="0" Margin="0,0,8,0">
+                              <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"
+                                           TextTrimming="CharacterEllipsis" MaxWidth="260" />
+                                <Border Background="#FEE2E2" CornerRadius="3" Padding="4,0" Margin="6,0,0,0"
+                                        Visibility="{Binding IsBlocked, Converter={StaticResource BoolToVisibility}}"
+                                        ToolTip="{Binding BlockReason}">
+                                  <TextBlock Text="不可自动清理" FontSize="10" Foreground="#991B1B" />
+                                </Border>
+                              </StackPanel>
+                              <TextBlock Text="{Binding ProductCode}" FontSize="11" Style="{StaticResource SecondaryText}"
+                                         TextTrimming="CharacterEllipsis" ToolTip="{Binding FullPath}" />
                             </StackPanel>
-                            <TextBlock Text="{Binding ProductCode}" FontSize="11" Style="{StaticResource SecondaryText}"
-                                       TextTrimming="CharacterEllipsis" />
-                            <ItemsControl ItemsSource="{Binding Evidence}" Margin="0,2,0,0">
-                              <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                  <TextBlock FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap">
-                                    <Run Text="· " /><Run Text="{Binding Mode=OneWay}" />
-                                  </TextBlock>
-                                </DataTemplate>
-                              </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                          </StackPanel>
+
+                            <TextBlock Grid.Column="1" Text="{Binding VersionText}" VerticalAlignment="Center"
+                                       Style="{StaticResource SecondaryText}" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Grid.Column="2" Text="{Binding Publisher}" VerticalAlignment="Center"
+                                       Style="{StaticResource SecondaryText}" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Grid.Column="3" Text="{Binding StateText}" VerticalAlignment="Center"
+                                       Style="{StaticResource SecondaryText}" TextTrimming="CharacterEllipsis"
+                                       ToolTip="{Binding StateText}" />
+                          </Grid>
                         </Border>
                       </DataTemplate>
                     </ListBox.ItemTemplate>
                   </ListBox>
-                </StackPanel>
+
+                  <!-- 三种空态各说各的话 -->
+                  <StackPanel Grid.Row="2" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="10,6"
+                              Visibility="{Binding Leftovers.ShowRegistryEmptyState, Converter={StaticResource BoolToVisibility}}">
+                    <TextBlock Text="还没有检查注册表" HorizontalAlignment="Center"
+                               Foreground="{StaticResource TextSecondaryBrush}" />
+                    <TextBlock Text="点击「扫描注册表残留」：只读检查，不会改动注册表"
+                               Style="{StaticResource SecondaryText}" HorizontalAlignment="Center" Margin="0,4,0,0" />
+                  </StackPanel>
+
+                  <StackPanel Grid.Row="2" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="10,6"
+                              Visibility="{Binding Leftovers.ShowRegistryCleanState, Converter={StaticResource BoolToVisibility}}">
+                    <TextBlock Text="注册表干净，没有孤儿条目" HorizontalAlignment="Center"
+                               Foreground="{StaticResource TextSecondaryBrush}" />
+                    <TextBlock Text="Windows Installer 认识「应用和功能」里的每一个条目"
+                               Style="{StaticResource SecondaryText}" HorizontalAlignment="Center" Margin="0,4,0,0" />
+                  </StackPanel>
+
+                  <StackPanel Grid.Row="2" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="10,6"
+                              Visibility="{Binding Leftovers.ShowRegistryFilterEmpty, Converter={StaticResource BoolToVisibility}}">
+                    <TextBlock Text="当前筛选条件下没有注册表条目" HorizontalAlignment="Center"
+                               Foreground="{StaticResource TextSecondaryBrush}" />
+                    <TextBlock Text="清空筛选关键词，或点「全部残留」看全部条目"
+                               Style="{StaticResource SecondaryText}" HorizontalAlignment="Center" Margin="0,4,0,0" />
+                  </StackPanel>
+
+                  <!-- 选中行详情：完整键路径 + 被拦下的原因（注册表没有"打开所在文件夹"，用户只能靠这段文字复核） -->
+                  <Border Grid.Row="3" Background="#FFFFFF" BorderBrush="{StaticResource BorderBrush}"
+                          BorderThickness="0,1,0,0" Padding="10,6"
+                          Visibility="{Binding Leftovers.HasSelectedRegistry, Converter={StaticResource BoolToVisibility}}">
+                    <StackPanel>
+                      <TextBlock FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap">
+                        <Run Text="键路径：" /><Run Text="{Binding Leftovers.SelectedRegistry.FullPath, Mode=OneWay}" />
+                      </TextBlock>
+                      <TextBlock FontSize="11" Foreground="#991B1B" TextWrapping="Wrap" Margin="0,3,0,0"
+                                 Visibility="{Binding Leftovers.SelectedRegistry.IsBlocked, Converter={StaticResource BoolToVisibility}}">
+                        <Run Text="不可自动清理的原因：" /><Run Text="{Binding Leftovers.SelectedRegistry.BlockReason, Mode=OneWay}" />
+                      </TextBlock>
+                      <TextBlock FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap" Margin="0,3,0,0">
+                        <Run Text="所在分支：" /><Run Text="{Binding Leftovers.SelectedRegistry.HiveText, Mode=OneWay}" />
+                      </TextBlock>
+                    </StackPanel>
+                  </Border>
+                </Grid>
               </Border>
-              </Grid>
 
               <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center"
                           Visibility="{Binding Leftovers.ShowEmptyState, Converter={StaticResource BoolToVisibility}}">
@@ -805,7 +904,8 @@
                            Style="{StaticResource SecondaryText}" HorizontalAlignment="Center" />
               </StackPanel>
 
-              <Border Grid.Row="2" Background="#FAFBFC" BorderBrush="{StaticResource BorderBrush}"
+              <!-- 底部状态条占最后一行：注册表区块插到了它上面，行号要跟着下移 -->
+              <Border Grid.Row="3" Background="#FAFBFC" BorderBrush="{StaticResource BorderBrush}"
                       BorderThickness="0,1,0,0" Padding="10,8" CornerRadius="0,0,8,8">
                 <Grid>
                   <Grid.ColumnDefinitions>
@@ -815,7 +915,8 @@
                   <TextBlock Grid.Column="0" Text="{Binding Leftovers.StatusText}" TextWrapping="Wrap" />
                   <Button Grid.Column="1" Content="打开所在文件夹" Padding="10,3" Margin="8,0,0,0"
                           Command="{Binding Leftovers.OpenFolderCommand}"
-                          CommandParameter="{Binding Leftovers.Selected}" />
+                          CommandParameter="{Binding Leftovers.Selected}"
+                          ToolTip="打开选中文件残留目录（注册表条目没有对应目录）" />
                 </Grid>
               </Border>
             </Grid>

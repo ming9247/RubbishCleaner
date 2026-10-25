@@ -36,8 +36,8 @@ public sealed record OrphanCleanupResult(
 ///
 /// <b>七道闸门</b>（比文件清理更严，因为注册表删错影响面更大）：
 /// <list type="number">
+/// <item>拒绝 <c>Uninstall</c> 根键本身（先判，因为它拦的是最坏情况）</item>
 /// <item>产品 GUID 必须是严格 <c>{8-4-4-4-12}</c> 格式</item>
-/// <item>拒绝 <c>Uninstall</c> 根键本身</item>
 /// <item>必须是 <c>...\Uninstall\{GUID}</c>，只差一层</item>
 /// <item><b>执行前重新查一次 MSI 状态</b>：必须是 ABSENT（防止扫描到确认之间产品被装上）</item>
 /// <item>再次确认不在已安装产品枚举里</item>
@@ -108,6 +108,32 @@ public sealed class OrphanCleaner
                 continue;
             }
 
+            // 闸门 2（v0.4.0 显式化）：拒绝删 Uninstall 根键本身。
+            //
+            // 之前这一步没有独立判断，只靠闸门 3「UninstallRootPath 必须等于根路径」
+            // 间接成立：闸门 3 校验的是 UninstallRootPath，而真正交给
+            // DeleteSubKeyTree 的是 UninstallRootPath + "\" + ProductCode，
+            // 两处不是同一个表达式，是个隐患。
+            //
+            // 现在改成对「最终要删的那个路径」直接判断（与 Execute 用同一个
+            // BuildTargetSubKeyPath，保证"判的"和"删的"是同一个东西），
+            // 并且放在闸门 1 之前：ProductCode 为空时拼接结果会退化成根键，
+            // 这种情况必须在这里被拦下，而不是留给 GUID 规则去碰运气。
+            //
+            // 为什么显式判断之后仍然安全（两道独立保险，顺序从强到弱）：
+            // 1) 这里直接拦住"拼接结果等于 Uninstall 根键"与"ProductCode 为空"两种退化；
+            // 2) 闸门 1 再保证 ProductCode 严格是 {8-4-4-4-12}，不含反斜杠、不含 ..
+            //    也不可能为空 —— 因此正常条目的删除路径必然比根键正好深一层。
+            // 两道都过不去的条目只会被跳过（跳过 = 不删），最坏结果是一条孤儿留着，
+            // 绝不会出现"删掉整棵 Uninstall 树"。
+            var targetSubKeyPath = BuildTargetSubKeyPath(entry.UninstallRootPath, entry.ProductCode);
+            if (string.IsNullOrWhiteSpace(entry.ProductCode)
+                || string.Equals(targetSubKeyPath, UninstallRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                skipped.Add((entry.DisplayName, "拒绝删除 Uninstall 根键本身"));
+                continue;
+            }
+
             // 闸门 1
             if (!GuidPattern.IsMatch(entry.ProductCode))
             {
@@ -115,15 +141,12 @@ public sealed class OrphanCleaner
                 continue;
             }
 
-            // 闸门 2 + 3：路径必须是 ...\Uninstall\{GUID}
-            var expected = $@"{entry.UninstallRootPath}\{entry.ProductCode}";
-            if (entry.UninstallRootPath != UninstallRoot)
+            // 闸门 3：必须在标准 Uninstall 路径下，且只差一层
+            if (!string.Equals(entry.UninstallRootPath, UninstallRoot, StringComparison.OrdinalIgnoreCase))
             {
                 skipped.Add((entry.DisplayName, $"不在标准 Uninstall 路径下：{entry.UninstallRootPath}"));
                 continue;
             }
-
-            _ = expected;
 
             targets.Add(new OrphanCleanupTarget(
                 entry.ProductCode,
@@ -152,7 +175,7 @@ public sealed class OrphanCleaner
 
         foreach (var target in plan.Targets)
         {
-            var subKeyPath = $@"{target.UninstallRootPath}\{target.ProductCode}";
+            var subKeyPath = BuildTargetSubKeyPath(target.UninstallRootPath, target.ProductCode);
 
             // 闸门 4（执行前复核）：状态必须是 ABSENT。
             // 扫描到用户点确认之间，产品可能被重新安装——此时删除会破坏正常软件。
@@ -227,6 +250,18 @@ public sealed class OrphanCleaner
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// 唯一一处拼「要删的那个键路径」的地方：闸门 2/3 的判断与真正执行删除
+    /// 用的是同一个函数，避免"判的和删的不是同一个东西"。
+    /// </summary>
+    private static string BuildTargetSubKeyPath(string uninstallRootPath, string productCode)
+    {
+        // 先去掉根路径末尾的反斜杠，保证"退化路径"能被闸门 2 的相等判断识别出来；
+        // 产品码为空时直接返回根路径本身，于是闸门 2 一定能看见这种退化。
+        var root = (uninstallRootPath ?? string.Empty).TrimEnd('\\');
+        return string.IsNullOrWhiteSpace(productCode) ? root : $@"{root}\{productCode}";
     }
 
     private static bool KeyExistsCore(RegistryHive hive, RegistryView view, string subKeyPath)

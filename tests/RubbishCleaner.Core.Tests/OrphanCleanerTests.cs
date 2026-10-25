@@ -93,8 +93,8 @@ public class OrphanCleanerTests
     [Fact]
     public void BuildPlan_ValidOrphan_IsAccepted()
     {
-        using var scope = new Scope();
         var h = Prepare(Entry());
+        using var scope = new Scope(h);
 
         var plan = h.Build().BuildPlan([Entry()]);
 
@@ -132,10 +132,51 @@ public class OrphanCleanerTests
     }
 
     [Fact]
+    public void BuildPlan_EmptyProductCode_IsRejectedNotTreatedAsRoot()
+    {
+        // 闸门 2 显式化后的核心用例：产品码为空时，拼接结果会退化成 Uninstall 根键本身。
+        // 修复前没有这层判断，只能靠闸门 1（GUID 规则）间接拦住；
+        // 现在必须在闸门 2 就被明确拒绝，且理由说清楚是"根键"。
+        var plan = new Harness().Build().BuildPlan([Entry(guid: "")]);
+
+        Assert.True(plan.IsEmpty);
+        Assert.Contains("根键", plan.Skipped[0].Reason);
+    }
+
+    [Fact]
+    public void BuildPlan_WhitespaceProductCode_IsRejected()
+    {
+        var plan = new Harness().Build().BuildPlan([Entry(guid: "   ")]);
+
+        Assert.True(plan.IsEmpty);
+        Assert.Contains("根键", plan.Skipped[0].Reason);
+    }
+
+    [Fact]
+    public void BuildPlan_TrailingBackslashRoot_DoesNotDegenerateIntoRoot()
+    {
+        // UninstallRootPath 带尾反斜杠时，直接字符串拼接会得到 "...\Uninstall"（多一个分隔符），
+        // 闸门 3 会因路径不等而拒绝——但绝不能出现"被当成合法路径"的情况。
+        var plan = new Harness().Build().BuildPlan([Entry(root: Root + @"\")]);
+
+        Assert.True(plan.IsEmpty);
+    }
+
+    [Fact]
+    public void BuildPlan_IsCaseInsensitiveOnUninstallRoot()
+    {
+        // 注册表路径不区分大小写；之前的 != 字符串比较在大小写不同时会误拒。
+        var plan = new Harness().Build().BuildPlan(
+            [Entry(root: @"software\microsoft\windows\currentversion\uninstall")]);
+
+        Assert.Equal(1, plan.Count);
+    }
+
+    [Fact]
     public void Execute_HappyPath_BacksUpThenDeletes()
     {
-        using var scope = new Scope();
         var h = Prepare(Entry());
+        using var scope = new Scope(h);
         var cleaner = h.Build();
         var plan = cleaner.BuildPlan([Entry()]);
 
@@ -152,8 +193,8 @@ public class OrphanCleanerTests
     public void Execute_StateChangedToInstalled_IsSkipped()
     {
         // 扫描时是 ABSENT，点确认之前用户把软件重新装上了 → 必须跳过
-        using var scope = new Scope();
         var h = Prepare(Entry(), liveState: 1);
+        using var scope = new Scope(h);
         var cleaner = h.Build();
         var plan = cleaner.BuildPlan([Entry()]);
 
@@ -169,8 +210,8 @@ public class OrphanCleanerTests
     [Fact]
     public void Execute_AppearedInEnumeration_IsSkipped()
     {
-        using var scope = new Scope();
         var h = Prepare(Entry());
+        using var scope = new Scope(h);
         var cleaner = h.Build();
         var plan = cleaner.BuildPlan([Entry()]);
 
@@ -186,8 +227,8 @@ public class OrphanCleanerTests
     [Fact]
     public void Execute_KeyAlreadyGone_IsSkipped()
     {
-        using var scope = new Scope();
         var h = Prepare(Entry());
+        using var scope = new Scope(h);
         var cleaner = h.Build();
         var plan = cleaner.BuildPlan([Entry()]);
 
@@ -202,8 +243,8 @@ public class OrphanCleanerTests
     [Fact]
     public void Execute_BackupFails_DoesNotDelete()
     {
-        using var scope = new Scope();
         var h = Prepare(Entry());
+        using var scope = new Scope(h);
 
         // 用一个非法目录让备份失败
         h.BackupDir = @"Z:\\NoSuchDrive\\backups";
@@ -221,8 +262,8 @@ public class OrphanCleanerTests
     [Fact]
     public void Execute_DeleteThrows_ReportsFailureWithBackupPath()
     {
-        using var scope = new Scope();
         var h = Prepare(Entry());
+        using var scope = new Scope(h);
         h.DeleteThrows = true;
 
         var cleaner = h.Build();
@@ -237,8 +278,8 @@ public class OrphanCleanerTests
     [Fact]
     public void Execute_KeySurvivesDelete_IsReportedAsFailure()
     {
-        using var scope = new Scope();
         var h = Prepare(Entry());
+        using var scope = new Scope(h);
         h.KeySurvivesDelete = true;
 
         var cleaner = h.Build();
@@ -262,8 +303,8 @@ public class OrphanCleanerTests
     [Fact]
     public void Execute_OneFailureDoesNotStopOthers()
     {
-        using var scope = new Scope();
         var h = new Harness();
+        using var scope = new Scope(h);
         var second = Entry(guid: "{11111111-2222-3333-4444-555555555555}", name: "第二个");
 
         h.States[ValidGuid] = 1;
@@ -281,11 +322,19 @@ public class OrphanCleanerTests
         Assert.False(results[1].Success);
     }
 
-    /// <summary>自动清理临时备份目录。</summary>
+    /// <summary>
+    /// 自动清理临时备份目录。
+    ///
+    /// 之前这个类是空实现（Dispose 不做事），而 Harness.Cleanup() 从未被调用，
+    /// 结果每跑一次测试就往 %TEMP% 里漏一批 <c>rc-orphan-*</c> 目录。
+    /// 现在把 Harness 交给它，Dispose 时真正删掉。
+    /// </summary>
     private sealed class Scope : IDisposable
     {
-        public void Dispose()
-        {
-        }
+        private readonly Harness? _harness;
+
+        public Scope(Harness? harness = null) => _harness = harness;
+
+        public void Dispose() => _harness?.Cleanup();
     }
 }

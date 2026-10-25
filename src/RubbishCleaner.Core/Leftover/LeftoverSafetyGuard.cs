@@ -53,10 +53,29 @@ public static class LeftoverSafetyGuard
     ];
 
     /// <summary>盘根（如 "C:\"）——删除它等于清空系统盘。</summary>
+    ///
+    /// <b>为什么必须先判"是否完全限定"</b>（v0.4.1 修复的隐藏环境依赖）：
+    /// <c>"D:"</c> 是<b>驱动器相对路径</b>（含义是"D 盘的当前目录"），不是盘根。
+    /// 但 <c>Path.GetFullPath("D:")</c> 会按进程的"每盘当前目录"（隐藏环境变量 <c>=D:</c>）补全：
+    /// 该变量存在时得到 <c>D:\某目录</c>，不存在时得到 <c>D:\</c>。
+    /// 于是同一个输入在不同进程里会得出不同结论——原先的用例 <c>IsVolumeRoot("D:")</c>
+    /// 在开发者机器上跑是 false，换到干净环境跑就变成 true（实测：清空 <c>=D:</c> 的子进程里
+    /// <c>GetFullPath("D:")</c> 返回 <c>D:\</c>）。这是<b>测试环境的运气</b>，不是逻辑正确。
+    ///
+    /// 修法：驱动器相对路径一律不算盘根，与 <see cref="Check"/> 里"相对路径一律拒绝"的语义一致。
+    /// <see cref="Check"/> 传入的已经是 <c>GetFullPath</c> 之后的完全限定路径，因此行为不变。
+    /// </summary>
     public static bool IsVolumeRoot(string path)
     {
         try
         {
+            // 先看原始输入：驱动器相对（"D:"）、普通相对路径都不是盘根。
+            // 不能先 GetFullPath 再判——那时已经看不出它原本是不是完全限定的了。
+            if (string.IsNullOrWhiteSpace(path) || !Path.IsPathFullyQualified(path))
+            {
+                return false;
+            }
+
             var full = Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar);
             var root = Path.GetPathRoot(full)?.TrimEnd(Path.DirectorySeparatorChar);
             return !string.IsNullOrEmpty(root)
@@ -87,7 +106,13 @@ public static class LeftoverSafetyGuard
         // 必须先判原始输入是否绝对：Path.GetFullPath 会把相对路径<b>补全</b>成绝对路径，
         // 之后再也看不出它原本是相对的（实测踩过：@"AppDataLocalFoo" 被静默解析成
         // 当前工作目录下的路径，于是"相对路径一律拒绝"这道闸门形同虚设）。
-        if (!Path.IsPathRooted(raw))
+        //
+        // 两个判断都要做，缺一不可（v0.4.1 补）：
+        // <c>Path.IsPathRooted("D:")</c> 返回 <b>true</b>——驱动器相对路径也算"rooted"，
+        // 但它<b>不是绝对路径</b>：它的真实含义是"D 盘的当前目录"，随进程的每盘当前目录变化。
+        // 只查 IsPathRooted 会把 "D:" 放过去，然后 GetFullPath 把它补全成
+        // "D:\<某目录>"，于是这道闸门对着一个语义不确定的输入给出了"允许删除"。
+        if (!Path.IsPathRooted(raw) || !Path.IsPathFullyQualified(raw))
         {
             return "不是绝对路径";
         }

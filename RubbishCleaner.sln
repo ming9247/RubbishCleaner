@@ -21,6 +21,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RubbishCleaner.Smoke", "too
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RubbishCleaner.App.Tests", "tests\RubbishCleaner.App.Tests\RubbishCleaner.App.Tests.csproj", "{66A11684-FF1E-4FDC-9693-E48967B049AD}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RubbishCleaner.RegE2E", "tools\RubbishCleaner.RegE2E\RubbishCleaner.RegE2E.csproj", "{EE68908D-AC06-4854-AA61-90A34AC7FD80}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -103,6 +105,18 @@ Global
 		{66A11684-FF1E-4FDC-9693-E48967B049AD}.Release|x64.Build.0 = Release|Any CPU
 		{66A11684-FF1E-4FDC-9693-E48967B049AD}.Release|x86.ActiveCfg = Release|Any CPU
 		{66A11684-FF1E-4FDC-9693-E48967B049AD}.Release|x86.Build.0 = Release|Any CPU
+		{EE68908D-AC06-4854-AA61-90A34AC7FD80}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{EE68908D-AC06-4854-AA61-90A34AC7FD80}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{EE68908D-AC06-4854-AA61-90A34AC7FD80}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{EE68908D-AC06-4854-AA61-90A34AC7FD80}.Debug|x64.Build.0 = Debug|Any CPU
+		{EE68908D-AC06-4854-AA61-90A34AC7FD80}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{EE68908D-AC06-4854-AA61-90A34AC7FD80}.Debug|x86.Build.0 = Debug|Any CPU
+		{EE68908D-AC06-4854-AA61-90A34AC7FD80}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{EE68908D-AC06-4854-AA61-90A34AC7FD80}.Release|Any CPU.Build.0 = Release|Any CPU
+		{EE68908D-AC06-4854-AA61-90A34AC7FD80}.Release|x64.ActiveCfg = Release|Any CPU
+		{EE68908D-AC06-4854-AA61-90A34AC7FD80}.Release|x64.Build.0 = Release|Any CPU
+		{EE68908D-AC06-4854-AA61-90A34AC7FD80}.Release|x86.ActiveCfg = Release|Any CPU
+		{EE68908D-AC06-4854-AA61-90A34AC7FD80}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -114,5 +128,6 @@ Global
 		{0D3C699D-667C-4BDD-841F-345FAA611FCB} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{2F86EE57-EAAF-4F8F-930A-2111AEB54BB0} = {07C2787E-EAC7-C090-1BA3-A61EC2A24D84}
 		{66A11684-FF1E-4FDC-9693-E48967B049AD} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{EE68908D-AC06-4854-AA61-90A34AC7FD80} = {07C2787E-EAC7-C090-1BA3-A61EC2A24D84}
 	EndGlobalSection
 EndGlobal

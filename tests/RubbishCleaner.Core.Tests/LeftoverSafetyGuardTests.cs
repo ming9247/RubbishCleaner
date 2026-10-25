@@ -143,6 +143,37 @@ public class LeftoverSafetyGuardTests
         Assert.False(LeftoverSafetyGuard.IsVolumeRoot("D:"));
     }
 
+    /// <summary>
+    /// 驱动器相对路径不是盘根——<b>而且这个结论不能依赖运行环境</b>。
+    ///
+    /// 这是 v0.4.1 补的回归防护：原先 <c>IsVolumeRoot</c> 直接 <c>Path.GetFullPath("D:")</c> 再比盘根，
+    /// 而 <c>GetFullPath</c> 会按进程隐藏环境变量 <c>=D:</c>（每盘当前目录）补全——
+    /// 有该变量时得到 <c>D:\某目录</c>（判 false），没有时得到 <c>D:\</c>（判 true）。
+    /// 于是同一份代码在开发者机器上绿、在干净环境里红（实测复现：清空 <c>=D:</c> 的子进程里
+    /// <c>GetFullPath("D:")</c> 就是 <c>D:\</c>）。
+    ///
+    /// 现在 <c>IsVolumeRoot</c> 先看原始输入是否完全限定，驱动器相对形态一律返回 false，
+    /// 与环境无关；而 <see cref="LeftoverSafetyGuard.Check"/> 传给它的仍是补全后的绝对路径，行为不变。
+    /// </summary>
+    [Theory]
+    [InlineData("C:")]
+    [InlineData("D:")]
+    [InlineData("Z:")]
+    public void IsVolumeRoot_DriveRelativePath_IsNotVolumeRoot(string path)
+    {
+        Assert.False(LeftoverSafetyGuard.IsVolumeRoot(path));
+    }
+
+    [Fact]
+    public void Check_DriveRelativePath_IsRejectedBeforeResolution()
+    {
+        // 两道闸门都会拒绝，但先命中的必须是"不是绝对路径"——
+        // 这样用户看到的原因才是真实原因，而不是"这是盘符根目录"这种误导性提示。
+        var reason = LeftoverSafetyGuard.Check("D:", Self);
+
+        Assert.Equal("不是绝对路径", reason);
+    }
+
     [Fact]
     public void Apply_AttachesBlockReasonWithoutDroppingItems()
     {

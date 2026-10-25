@@ -140,4 +140,80 @@ public class MsiInteropTests
         Assert.NotEmpty(products);
         Assert.All(products, p => Assert.StartsWith("{", p));
     }
+
+    [Fact]
+    public void EnumerateProducts_AllEntriesHaveStrictGuidShape()
+    {
+        var products = MsiInterop.EnumerateProducts();
+
+        Assert.NotEmpty(products);
+        Assert.All(products, p => Assert.Matches(
+            @"^\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}$", p));
+    }
+
+    [Fact]
+    public void EnumerateProducts_CoversAllContexts_SupersetOfLegacyEnumeration()
+    {
+        // 核心回归：新的多上下文枚举只能是"更全"，绝不可能是"更少"。
+        // 少枚举 = 把在装的产品误判成孤儿 = 误删，所以这条必须严格成立。
+        // 本机实测（2026-10-25，Windows 11 22631 / AMD64 / 非管理员）：
+        //   MACHINE 338 + USERMANAGED 0 + USERUNMANAGED 6 = 并集 344；
+        //   旧 MsiEnumProducts 也是 344，两者完全相等。
+        var multiContext = MsiInterop.EnumerateProducts();
+        var legacy = MsiInterop.EnumerateProductsLegacy();
+
+        Assert.NotEmpty(legacy);
+
+        var missing = legacy.Where(p => !multiContext.Contains(p)).ToList();
+        Assert.True(
+            missing.Count == 0,
+            $"多上下文枚举漏掉了旧枚举里的 {missing.Count} 个产品：{string.Join(", ", missing.Take(5))}");
+
+        Assert.True(
+            multiContext.Count >= legacy.Count,
+            $"多上下文枚举数量 {multiContext.Count} 少于旧枚举 {legacy.Count}");
+    }
+
+    [Fact]
+    public void EnumerateProducts_ProducesNoDuplicates_AndIsCaseInsensitive()
+    {
+        // HashSet 用 OrdinalIgnoreCase：同一 GUID 大小写不同不该算两条，
+        // 也不该让 Ordinal 比较的调用方（OrphanCleaner 的 Contains）漏判。
+        var products = MsiInterop.EnumerateProducts();
+
+        Assert.NotEmpty(products);
+        Assert.Equal(products.Count, products.Select(p => p.ToUpperInvariant()).Distinct().Count());
+
+        var sample = products.First();
+        Assert.Contains(sample.ToLowerInvariant(), products);
+    }
+
+    [Fact]
+    public void InstallContextConstants_MatchWindowsInstallerDocumentedValues()
+    {
+        // MsiEnumProductsEx 的 dwContext 不是 1/2/4 的自然顺序：
+        // USERMANAGED=1、USERUNMANAGED=2、MACHINE=4。
+        // 写错值在真机上直接得到 ERROR_INVALID_PARAMETER(87)——本机已实测踩到过。
+        var type = typeof(MsiInterop);
+        var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static;
+
+        Assert.Equal(4u, (uint)type.GetField("MsiInstallContextMachine", flags)!.GetValue(null)!);
+        Assert.Equal(1u, (uint)type.GetField("MsiInstallContextUserManaged", flags)!.GetValue(null)!);
+        Assert.Equal(2u, (uint)type.GetField("MsiInstallContextUserUnmanaged", flags)!.GetValue(null)!);
+        Assert.Equal(259u, (uint)type.GetField("ErrorNoMoreItems", flags)!.GetValue(null)!);
+    }
+
+    [Fact]
+    public void EnumerateProducts_SingleContextProbe_ReturnsMachineProducts()
+    {
+        // 逐上下文直接探针：MACHINE 上下文在本机应能取到产品（338 个，实测），
+        // 用来证明 Ex API 的 P/Invoke 签名（参数顺序/缓冲区）是对的——
+        // 签错时会直接返回 ERROR_INVALID_PARAMETER(87) 而拿到 0 个。
+        const uint machineContext = 4;
+        var (products, succeeded) = MsiInterop.EnumerateProductsInContext(machineContext);
+
+        Assert.True(succeeded, "MACHINE 上下文枚举应成功");
+        Assert.NotEmpty(products);
+        Assert.All(products, p => Assert.StartsWith("{", p));
+    }
 }
