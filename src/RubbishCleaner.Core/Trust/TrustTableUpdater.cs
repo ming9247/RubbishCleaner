@@ -60,9 +60,12 @@ public sealed class TrustTableUpdater : IDisposable
     {
         try
         {
-            // 读取当前本地版本
-            var currentTable = TrustTableLoader.TryLoadFile(_targetPath);
-            var currentVersion = currentTable?.Version ?? 0;
+            // 读取当前本地版本：取三层合并后的有效版本(内置表 → 程序目录表 → 用户表)，
+            // 避免干净机器上用户表缺失时把"当前版本"算成 0(界面显示"当前 v0")。
+            // 写入目标仍只写用户表(ADR-008：用户表只增不覆盖内置表)。
+            var currentVersion = TrustTableLoader
+                .Load(TrustTableLoader.DefaultAppTablePath(), _targetPath)
+                .Version;
 
             // 下载远程版本信息(完整文件,后续更新时复用)
             var tempPath = Path.GetTempFileName();
@@ -233,7 +236,22 @@ public sealed class TrustTableUpdater : IDisposable
                 Directory.CreateDirectory(directory);
             }
 
-            await File.WriteAllTextAsync(_targetPath, remoteJson, cancellationToken);
+            // 原子替换：先写同目录临时文件，落盘成功后再用 File.Move 覆盖目标文件。
+            // 直接覆盖写(_targetPath)时若进程中途被杀会留下截断的 trust-table.json。
+            var stagingPath = _targetPath + ".tmp";
+            try
+            {
+                await File.WriteAllTextAsync(stagingPath, remoteJson, cancellationToken);
+                File.Move(stagingPath, _targetPath, overwrite: true);
+            }
+            finally
+            {
+                // 任何失败路径都不留临时文件
+                if (File.Exists(stagingPath))
+                {
+                    try { File.Delete(stagingPath); } catch { }
+                }
+            }
 
             progress?.Report($"更新完成: v{checkResult.CurrentVersion} → v{checkResult.RemoteVersion}");
 

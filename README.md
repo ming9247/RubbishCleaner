@@ -1,7 +1,7 @@
 # RubbishCleaner
 
 > 轻量、便捷、易操作的 Windows 流氓软件检测与残留清理工具
-> 当前版本：**v0.7.0**（自启动检测 + 流氓评分 + 残留启动项清理 + 软件列表与协助卸载 + 残留目录扫描与可还原清理 + 卸载后自动扫残留 + 注册表孤儿条目清理 + 系统一致性报告（只读）+ 备份历史一键回滚 + **特征库在线更新与设置页（v0.7，默认不联网）** + WPF 界面 + UAC 提权）
+> 当前版本：**v0.8**（自启动检测 + 流氓评分 + 残留启动项清理 + 软件列表与协助卸载 + 残留目录扫描与可还原清理 + 卸载后自动扫残留 + 注册表孤儿条目清理 + 系统一致性报告（只读）+ 备份历史一键回滚 + 特征库在线更新与设置页（v0.7，默认不联网）+ **在线更新全链路真机实测与缺陷修复（v0.8）** + WPF 界面 + UAC 提权）
 
 ---
 
@@ -292,7 +292,7 @@ v0.7 解决两个「用久了」的问题：特征库怎么跟着新流氓软件
 |---|---|
 | 特征库在线更新（opt-in） | 默认**完全不联网**；设置页显式开启后才检查 GitHub 上的 trust-table.json，远程版本号必须**大于**本地才更新——手工把本地版本改高也不会被覆盖 |
 | 三层加载机制不变 | 内置表 → 程序目录表 → 用户表；网络更新只写用户层（`%ProgramData%\RubbishCleaner\trust-table.json`），不碰内置与程序目录 |
-| 下载安全 | 校验 JSON 有效性后才落盘；先写临时文件、校验后再替换的两阶段提交；更新失败不影响现有特征库 |
+| 下载安全 | 校验 JSON 有效性后才落盘；先写 `.tmp` 再 `File.Move(overwrite: true)` 原子替换（v0.8 修复：原实现是直接覆盖写）；更新失败不影响现有特征库 |
 | 备份保留 N 个 | 设置页可配（默认 30），超出按时间淘汰最旧的注册表备份；填 0 表示全部保留 |
 | 设置页 | 联网开关 / 备份保留数集中管理，随窗口关闭持久化 |
 
@@ -301,23 +301,44 @@ v0.7 解决两个「用久了」的问题：特征库怎么跟着新流氓软件
 
 ---
 
+## v0.8 新增：在线更新全链路真机实测 + 实测缺陷修复
+
+v0.7 的在线更新只有单元测试覆盖，没有在真机上跑通过完整链路。v0.8 补上这一环，
+并把实测暴露的问题当场修掉——**结论来自实测，不是"测试绿了所以应该没问题"**。
+
+| 能力 | 说明 |
+|---|---|
+| `tools/RubbishCleaner.TrustE2E` | 一次性真机探针（已进 `RubbishCleaner.sln`）：真实 HTTP + 真实写盘，八段 `[0]` `[a]`–`[g]` **54 项断言**，全通过 exit 0、有失败 exit 2 |
+| 实测结论 | 端点 HTTP 200 / 2383 B；检查更新 `Available=true Current=1 Remote=2`；更新 `1 → 2`，落盘 2383 B / `version=2` / 白 19 / 黑 7；再次检查 `Available=false`；删用户层文件后回滚内置表 v1 / 白 9 / 黑 6；联网关闭时 `CountingDownloader.CallCount=0`；生产默认路径 `%ProgramData%\RubbishCleaner\trust-table.json` 写入后完全还原 |
+| 修复 1：`CurrentVersion` | 原只读用户层单文件（干净机器显示"当前 v0"）；改取**内置表 → 程序目录表 → 用户层表**三层合并版本 |
+| 修复 2：最终写入 | 原 `File.WriteAllTextAsync(_targetPath, …)` 直接覆盖，进程被杀会留截断文件；改为 `.tmp` → `File.Move(overwrite: true)` 原子替换，失败保留原文件且不留临时文件 |
+| 修复 3：HTTP 重试 | 原只对异常重试，404/500 直接失败；改为 **5xx / 408 / 429** 指数退避重试，其余 4xx 立即返回（永久失败重试无意义） |
+| 测试基线 | **623 passed / 0 failed**（Core 448 + App 175），v0.7 为 614；新增 `HttpDownloaderRetryTests`（真实 loopback HTTP 服务）与 `TrustTableUpdaterAtomicWriteTests` |
+
+> 复跑方式：`dotnet run --project tools/RubbishCleaner.TrustE2E -c Debug`。
+> 探针只写临时目录，唯一碰真实路径的 `[g]` 段跑完会恢复原状（连 `%ProgramData%\RubbishCleaner`
+> 目录本身都会在"原本不存在"时删掉）。详见 `work-logs/2026-10-26-v0.8-在线更新全链路验证日志.md`。
+
+---
+
 ## 项目结构
 
 ```
 Rubbish-cleaner/
 ├── src/
-│   ├── RubbishCleaner.App/        # WPF 主程序（UI，三个页签）
+│   ├── RubbishCleaner.App/        # WPF 主程序（UI，六个页签）
 │   ├── RubbishCleaner.Core/       # 核心引擎（检测 / 评分 / 确认表 / 清理）
 │   │   ├── RegistryCleanup/       # 注册表孤儿 Uninstall 条目（v0.4，详见文末目录说明）
 │   │   ├── Integrity/             # 系统一致性报告（v0.5，只读：服务孤儿 + 状态不一致）
 │   │   └── Trust/                 # 特征库加载与在线更新（v0.7，默认不联网）
 │   └── RubbishCleaner.Common/     # Win32 / 注册表 / 签名 / 日志 / 文件索引 / HTTP 下载
 ├── tests/
-│   ├── RubbishCleaner.Core.Tests/ # Core 逻辑与安全闸门（439 项）
+│   ├── RubbishCleaner.Core.Tests/ # Core 逻辑与安全闸门（448 项）
 │   └── RubbishCleaner.App.Tests/  # 排序 / 导出 / ViewModel / 注册表交互（175 项）
 ├── tools/
 │   ├── RubbishCleaner.Smoke/      # 无界面冒烟验证工具
-│   └── RubbishCleaner.RegE2E/     # 注册表清理真机探针（e2e 全链路 / views 视图实测 / e2e32 32 位往返）
+│   ├── RubbishCleaner.RegE2E/     # 注册表清理真机探针（e2e 全链路 / views 视图实测 / e2e32 32 位往返）
+│   └── RubbishCleaner.TrustE2E/   # 特征库在线更新真机探针（v0.8，54 项断言）
 ├── docs/
 │   ├── planning/                  # 产品文档
 │   ├── technical/                 # 技术设计文档（含 ADR）

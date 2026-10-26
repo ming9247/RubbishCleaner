@@ -5,6 +5,8 @@ namespace RubbishCleaner.Common.Net;
 /// <summary>
 /// HTTP 文件下载器。
 /// 支持超时、进度回调、简单重试。
+/// 重试范围：网络异常/超时，以及 5xx、408、429 这类瞬时性 HTTP 失败（指数退避）；
+/// 其余 4xx 属于永久失败(路径写错、文件已删除等)，立即返回不重试。
 /// </summary>
 public class HttpDownloader : IDisposable
 {
@@ -44,6 +46,7 @@ public class HttpDownloader : IDisposable
         CancellationToken cancellationToken = default)
     {
         Exception? lastException = null;
+        string? lastHttpError = null;
 
         for (int attempt = 0; attempt <= _maxRetries; attempt++)
         {
@@ -59,10 +62,20 @@ public class HttpDownloader : IDisposable
                 
                 if (!response.IsSuccessStatusCode)
                 {
+                    var httpError = $"HTTP {(int)response.StatusCode}: {response.ReasonPhrase}";
+
+                    // 5xx 与 408/429 视为瞬时失败，交给外层指数退避重试；
+                    // 其余 4xx 是永久失败(URL 写错、文件已删除)，立即返回不浪费重试。
+                    if (IsRetryableStatusCode(response.StatusCode))
+                    {
+                        lastHttpError = httpError;
+                        continue;
+                    }
+
                     return new DownloadResult
                     {
                         Success = false,
-                        ErrorMessage = $"HTTP {(int)response.StatusCode}: {response.ReasonPhrase}"
+                        ErrorMessage = httpError
                     };
                 }
 
@@ -132,11 +145,30 @@ public class HttpDownloader : IDisposable
             }
         }
 
+        // 可重试的 HTTP 状态码重试耗尽时，返回最后一次的 HTTP 错误(保持 "HTTP {code}: {reason}" 格式)
+        if (lastHttpError is not null && lastException is null)
+        {
+            return new DownloadResult
+            {
+                Success = false,
+                ErrorMessage = lastHttpError
+            };
+        }
+
         return new DownloadResult
         {
             Success = false,
             ErrorMessage = $"下载失败(已重试{_maxRetries}次): {lastException?.Message}"
         };
+    }
+
+    /// <summary>
+    /// 判断状态码是否值得重试：5xx 服务端错误、408 请求超时、429 请求过多属于瞬时失败。
+    /// </summary>
+    private static bool IsRetryableStatusCode(HttpStatusCode statusCode)
+    {
+        var code = (int)statusCode;
+        return code >= 500 || code == 408 || code == 429;
     }
 
     public void Dispose()

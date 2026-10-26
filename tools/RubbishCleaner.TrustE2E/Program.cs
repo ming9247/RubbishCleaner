@@ -71,6 +71,41 @@ Console.WriteLine($"内置表    : v{builtin.Version} updated={builtin.Updated} 
 Console.WriteLine();
 
 // ---------------------------------------------------------------------------
+// [pre] 场景隔离：探针输出目录里的"程序目录表"
+//
+// 本探针 ProjectReference 了 RubbishCleaner.App，构建时 App.csproj 的
+// <None Update="Resources\trust-table.json" CopyToOutputDirectory="PreserveNewest">
+// 会把 src/RubbishCleaner.App/Resources/trust-table.json（version=2）复制到
+// tools/RubbishCleaner.TrustE2E/bin/<cfg>/<tfm>/Resources/trust-table.json。
+// 而 TrustTableLoader.DefaultAppTablePath() 正是 AppContext.BaseDirectory\Resources\trust-table.json，
+// TrustTableUpdater 检查更新时取三层合并版本（内置表 → 程序目录表 → 用户表），
+// 于是探针输出目录里这张 v2 的表会让"本地是旧版本"的所有场景直接失效（Current 恒为 2，永远「已是最新」）。
+//
+// 所以运行前把它临时移出输出目录（备份到探针目录），跑完再放回：
+// 这样测的才是"老安装只有内置表 v1 + 远程 v2"的真实升级链路。
+// 注意：该文件是构建产物，即使恢复失败，下一次 dotnet build 也会因 PreserveNewest 重新复制。
+// ---------------------------------------------------------------------------
+var appDirTable = TrustTableLoader.DefaultAppTablePath();
+var appDirTableBackup = Path.Combine(root, "app-dir-trust-table.json");
+var appDirTableExisted = File.Exists(appDirTable);
+var appDirTableIsolated = false;
+if (appDirTableExisted)
+{
+    File.Copy(appDirTable, appDirTableBackup, overwrite: true);
+    File.Delete(appDirTable);
+    appDirTableIsolated = true;
+}
+Console.WriteLine("[pre] 程序目录表隔离");
+Console.WriteLine($"  程序目录表: {appDirTable}");
+Console.WriteLine($"  运行前存在: {appDirTableExisted} → 已隔离: {appDirTableIsolated}");
+if (appDirTableExisted)
+{
+    var savedTable = TrustTableLoader.Parse(await File.ReadAllTextAsync(appDirTableBackup), "app-dir");
+    Note($"被隔离的表内容: v{savedTable.Version} Updated={savedTable.Updated ?? "null"} 白={savedTable.Whitelist.Count} 黑={savedTable.Blacklist.Count}（跑完原样放回）");
+}
+Check("pre.1 程序目录表已隔离（否则合并版本恒为 2）", !File.Exists(appDirTable), File.Exists(appDirTable) ? "仍存在" : "");
+
+// ---------------------------------------------------------------------------
 // [0] 端点基线：独立 HttpClient 只读测量，作为后续下载数据的对照
 // ---------------------------------------------------------------------------
 Console.WriteLine("[0] 端点基线测量（独立 HttpClient，不写盘）");
@@ -97,7 +132,7 @@ Console.WriteLine("[0] 端点基线测量（独立 HttpClient，不写盘）");
 }
 
 // ---------------------------------------------------------------------------
-// [a] 检查更新：本地无用户层文件（版本 0） vs 远程 v2
+// [a] 检查更新：本地无用户层文件（合并后回落内置表 v1） vs 远程 v2
 // ---------------------------------------------------------------------------
 Console.WriteLine();
 Console.WriteLine("[a] 检查更新（本地用户层缺失 → 期望发现新版本）");
@@ -109,7 +144,7 @@ UpdateCheckResult? checkA = null;
     sw.Stop();
     Console.WriteLine($"  Available={checkA.Available} Current={checkA.CurrentVersion} Remote={checkA.RemoteVersion} Updated={checkA.RemoteUpdatedDate ?? "null"} Error={checkA.ErrorMessage ?? "null"} 耗时={sw.ElapsedMilliseconds} ms");
     Check("a.1 Available=true", checkA.Available);
-    Check("a.2 CurrentVersion=0（无用户层文件）", checkA.CurrentVersion == 0, $"实际 {checkA.CurrentVersion}");
+    Check("a.2 CurrentVersion=1（无用户层文件，取合并后的内置表版本）", checkA.CurrentVersion == 1, $"实际 {checkA.CurrentVersion}");
     Check("a.3 RemoteVersion=2", checkA.RemoteVersion == ExpectedRemoteVersion, $"实际 {checkA.RemoteVersion}");
     Check("a.4 RemoteUpdatedDate=2026-10-24", checkA.RemoteUpdatedDate == ExpectedUpdated, checkA.RemoteUpdatedDate ?? "null");
     Check("a.5 ErrorMessage 为空", checkA.ErrorMessage is null, checkA.ErrorMessage ?? "null");
@@ -130,7 +165,7 @@ UpdateResult? updateB = null;
     sw.Stop();
     Console.WriteLine($"  Success={updateB.Success} Message={updateB.Message} {updateB.OldVersion}→{updateB.NewVersion} File={updateB.FilePath ?? "null"} 耗时={sw.ElapsedMilliseconds} ms");
     Check("b.1 Success=true", updateB.Success, updateB.Message);
-    Check("b.2 版本 0 → 2", updateB.OldVersion == 0 && updateB.NewVersion == ExpectedRemoteVersion, $"{updateB.OldVersion}→{updateB.NewVersion}");
+    Check("b.2 版本 1 → 2（旧版本取合并后的内置表版本）", updateB.OldVersion == 1 && updateB.NewVersion == ExpectedRemoteVersion, $"{updateB.OldVersion}→{updateB.NewVersion}");
     Check("b.3 FilePath 指向探针临时目标", string.Equals(updateB.FilePath, tempTarget, StringComparison.OrdinalIgnoreCase), updateB.FilePath ?? "null");
     Check("b.4 目标文件已生成", File.Exists(tempTarget));
     if (File.Exists(tempTarget))
@@ -256,9 +291,10 @@ Console.WriteLine("[e] 回滚：删除用户层文件后重读（期望回落内
     var result = await updater.CheckUpdateAsync(Url);
     Console.WriteLine($"  回滚后检查: Available={result.Available} Current={result.CurrentVersion} Remote={result.RemoteVersion}");
     Check("e.7 回滚后重新变为可更新", result.Available && result.RemoteVersion == ExpectedRemoteVersion, $"{result.Available}/{result.CurrentVersion}→{result.RemoteVersion}");
-    // 注意：updater 的 CurrentVersion 只读用户层文件（TryLoadFile(_targetPath)），
-    // 不是合并后的表版本；用户层被删后它就是 0，而不是内置表/合并表的 1 或 2。
-    Note($"回滚后 CurrentVersion={result.CurrentVersion}（updater 只比对用户层文件，不读合并表）");
+    // v0.8 修复后：updater 的 CurrentVersion 取三层合并后的有效版本（内置表 → 程序目录表 → 用户表），
+    // 用户层被删后回落到内置表版本 1，不再出现 "当前 v0"。
+    Check("e.8 回滚后 CurrentVersion 回落内置表版本 1", result.CurrentVersion == builtin.Version, $"{result.CurrentVersion}");
+    Note($"回滚后 CurrentVersion={result.CurrentVersion}（合并后回落内置表版本）");
 }
 
 // ---------------------------------------------------------------------------
@@ -435,6 +471,36 @@ Console.WriteLine("[g] 真实默认路径（生产构造函数 TrustTableUpdater
 
         Console.WriteLine($"  收尾后: 目录存在={Directory.Exists(realDir)} 文件存在={File.Exists(realPath)}");
     }
+}
+
+// ---------------------------------------------------------------------------
+// 恢复 [pre] 隔离的程序目录表
+// ---------------------------------------------------------------------------
+Console.WriteLine();
+Console.WriteLine("[post] 恢复程序目录表");
+{
+    if (appDirTableIsolated && File.Exists(appDirTableBackup))
+    {
+        try
+        {
+            var parent = Path.GetDirectoryName(appDirTable);
+            if (!string.IsNullOrEmpty(parent))
+            {
+                Directory.CreateDirectory(parent);
+            }
+            File.Copy(appDirTableBackup, appDirTable, overwrite: true);
+            Note($"已放回: {appDirTable}（{new FileInfo(appDirTable).Length} B）");
+        }
+        catch (Exception ex)
+        {
+            Note($"放回失败: {ex.GetType().Name}: {ex.Message}（备份在 {appDirTableBackup}；下次 dotnet build 会重新复制）");
+        }
+    }
+    else
+    {
+        Note("无需恢复（运行前就不存在程序目录表）");
+    }
+    Check("post.1 程序目录表已复原", !appDirTableExisted || File.Exists(appDirTable), File.Exists(appDirTable) ? "" : "缺失");
 }
 
 // ---------------------------------------------------------------------------
