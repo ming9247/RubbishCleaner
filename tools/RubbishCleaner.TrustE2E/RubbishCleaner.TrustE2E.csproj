@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RootNamespace>RubbishCleaner.TrustE2E</RootNamespace>
+    <AssemblyName>RubbishCleaner.TrustE2E</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\RubbishCleaner.Core\RubbishCleaner.Core.csproj" />
+    <ProjectReference Include="..\..\src\RubbishCleaner.App\RubbishCleaner.App.csproj" />
+  </ItemGroup>
+
+</Project>
