@@ -24,3 +24,6 @@ TestResults/
 logs/
 *.log
 work-logs/tmp/
+
+# 脚本里路径拼接失误产生的空目录（见 work-logs 记录），不纳入版本库
+undefined/
