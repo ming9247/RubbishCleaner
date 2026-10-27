@@ -19,6 +19,7 @@ public sealed class MainViewModel : ObservableObject
     private readonly StartupScanner _scanner;
     private readonly RubbishCleaner.Core.Cleanup.StartupCleaner _cleaner = new();
     private CancellationTokenSource? _cts;
+    private readonly AppSettings _settings;
 
     private bool _isScanning;
     private string _statusText = "点击「开始扫描」检测开机自启动项";
@@ -33,13 +34,28 @@ public sealed class MainViewModel : ObservableObject
     private string _durationText = string.Empty;
     private string _countsText = string.Empty;
 
-    public MainViewModel()
+    /// <summary>
+    /// 构造主视图模型。
+    ///
+    /// <para><paramref name="settings"/> 只在测试里传入：默认走
+    /// <see cref="AppSettings.Load()"/>，也就是真实的 %ProgramData% 路径。测试若直接
+    /// 用默认值，点一下"知道了"就会写进开发机的真实设置文件，还会把引导标记翻掉——
+    /// 所以留这个口子让测试指向临时文件。</para>
+    /// </summary>
+    public MainViewModel(AppSettings? settings = null)
     {
         var trustTable = TrustTableLoader.Load();
         _scanner = StartupScanner.CreateDefault(trustTable);
         TrustTableInfo = trustTable.Source;
         IsElevated = _scanner.IsElevated;
         EnvironmentReport = EnvironmentProbe.ToReport(EnvironmentProbe.Capture());
+
+        // v0.8：设置实例只在这里 Load 一次，再交给设置页共用。两边各 Load 一份的话，
+        // 设置页保存时会用自己那份旧快照把"引导已看过"的标记覆盖回去。
+        _settings = settings ?? AppSettings.Load();
+        Settings = new SettingsViewModel(settings: _settings);
+        DismissOnboardingCommand = new RelayCommand(DismissOnboarding);
+        ResetOnboardingCommand = new RelayCommand(ResetOnboarding);
 
         // 默认用 MessageBox 做确认与提示；测试可替换为可控委托，避免弹窗阻塞。
         ConfirmHandler = ConfirmWithMessageBox;
@@ -127,6 +143,33 @@ public sealed class MainViewModel : ObservableObject
         Apps.ResidueFound += OnResidueFound;
     }
 
+    private void DismissOnboarding()
+    {
+        _settings.HasSeenOnboarding = true;
+        SaveSettingsQuietly();
+        OnPropertyChanged(nameof(IsOnboardingVisible));
+    }
+
+    private void ResetOnboarding()
+    {
+        _settings.HasSeenOnboarding = false;
+        SaveSettingsQuietly();
+        OnPropertyChanged(nameof(IsOnboardingVisible));
+    }
+
+    /// <summary>保存设置失败不阻断操作本身（例如 ProgramData 只读），记日志即可。</summary>
+    private void SaveSettingsQuietly()
+    {
+        try
+        {
+            _settings.Save();
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"设置保存失败：{ex.Message}");
+        }
+    }
+
     /// <summary>残留页是否需要提醒用户查看（用于切换页签时的角标/提示）。</summary>
     private bool _hasPendingResidueHint;
 
@@ -197,7 +240,7 @@ public sealed class MainViewModel : ObservableObject
     /// 最小接线同 <see cref="BackupHistory"/>：设置加载/保存在 AppSettings，
     /// 更新逻辑在 TrustTableUpdater，清理逻辑在 IBackupHistoryStore——本类不做二次包装。
     /// </summary>
-    public SettingsViewModel Settings { get; } = new();
+    public SettingsViewModel Settings { get; }
 
     public ObservableCollection<SoftwareItemViewModel> Profiles { get; } = [];
 
@@ -205,6 +248,34 @@ public sealed class MainViewModel : ObservableObject
 
     /// <summary>排序状态；表头点击后由此驱动重排。</summary>
     public SortState Sort { get; } = new();
+
+    /// <summary>
+    /// 标题栏显示的版本号（v0.8）：直接读程序集版本，不再手写字面量。
+    ///
+    /// <para>v0.8 之前标题栏硬编码着 <c>v0.6.0</c>，发布到 0.7 之后就成了假信息。
+    /// 现在从 <see cref="RubbishCleaner.App.App"/> 所在程序集的
+    /// <c>AssemblyName.Version</c> 读取（三段式 0.8.0），与 csproj 的
+    /// &lt;Version&gt; 同源——版本号只有一处真相。</para>
+    /// </summary>
+    public string VersionText => $"v{typeof(RubbishCleaner.App.App).Assembly.GetName().Version?.ToString(3) ?? "0.0.0"}";
+
+    /// <summary>
+    /// 首次运行引导是否显示（v0.8）。
+    ///
+    /// <para>只在 <see cref="AppSettings.HasSeenOnboarding"/> 为 false 时显示一次。
+    /// 用覆盖层（主 Grid 的最后一层）而不是独立窗口：<c>ShutdownMode</c> 是 WPF 默认的
+    /// OnLastWindowClose，多开一个窗口就要自己管生命周期，覆盖层不会引入这个风险。</para>
+    /// </summary>
+    public bool IsOnboardingVisible => !_settings.HasSeenOnboarding;
+
+    /// <summary>引导的正文步骤，绑定到覆盖层里的列表。</summary>
+    public IReadOnlyList<OnboardingStep> OnboardingSteps => OnboardingContent.Steps;
+
+    /// <summary>关闭引导，并记住"已经看过"。</summary>
+    public ICommand DismissOnboardingCommand { get; }
+
+    /// <summary>「重新查看引导」：把标记改回未看过并保存，方便老用户回看。</summary>
+    public ICommand ResetOnboardingCommand { get; }
 
     public ICommand ScanCommand { get; }
 

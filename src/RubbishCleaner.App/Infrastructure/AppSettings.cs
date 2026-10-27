@@ -5,12 +5,12 @@ using System.Text.Json.Serialization;
 namespace RubbishCleaner.App.Infrastructure;
 
 /// <summary>
-/// 应用设置（v0.7）——持久化到 %ProgramData%\RubbishCleaner\settings.json。
+/// 应用设置（v0.8）——持久化到 %ProgramData%\RubbishCleaner\settings.json。
 ///
 /// <para><b>联网默认关闭</b>：v0.7 的核心约定。特征库在线更新是唯一联网功能，
 /// 且必须用户显式勾选「启用联网」后才会发起任何网络请求；离线行为与 v0.6 完全一致。</para>
 ///
-/// <para>用 System.Text.Json 手写序列化而不是引入配置库：字段只有两个，
+/// <para>用 System.Text.Json 手写序列化而不是引入配置库：字段只有三个，
 /// 保持轻量。文件损坏时按默认值继续（工具类软件不能因为设置文件坏了就起不来）。</para>
 /// </summary>
 public sealed class AppSettings
@@ -25,6 +25,15 @@ public sealed class AppSettings
 
     /// <summary>备份历史保留数量，超过的移入回收站。默认 30。</summary>
     public int KeepBackupCount { get; set; } = 30;
+
+    /// <summary>
+    /// 是否已经看过首次运行引导（v0.8）。默认 false。
+    ///
+    /// <para>只在用户<b>看完并关闭</b>引导后置 true，因此中途崩溃/断电不会把引导吞掉。
+    /// 旧版本升级上来的 settings.json 没有这个字段，反序列化后为 false——
+    /// 会再看一次引导，这是有意为之：v0.8 才第一次解释"风险分"是什么。</para>
+    /// </summary>
+    public bool HasSeenOnboarding { get; set; }
 
     /// <summary>
     /// 设置文件路径覆盖（不参与序列化）。供测试与特殊部署把设置重定向到别处；
