@@ -112,6 +112,8 @@ try {
     }
 
     # 4) 记录签名信息，便于发布页展示
+    #    注意：签名会让文件变长（追加签名块），必须重新取一次大小，否则记录的是签名前的旧值。
+    $item = Get-Item -LiteralPath $item.FullName
     $info = [ordered]@{
         file       = $item.FullName
         sizeBytes  = $item.Length
