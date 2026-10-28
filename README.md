@@ -20,6 +20,22 @@
 
 ---
 
+## 下载
+
+免安装绿色版（自包含单文件，**无需安装 .NET**）请到 Releases 页面下载：
+
+**<https://github.com/ming9247/RubbishCleaner/releases/latest>**
+
+| 文件 | 说明 |
+|---|---|
+| `RubbishCleaner.exe` | 主程序，约 67.7 MB，双击运行（首次会弹 UAC，需要管理员权限） |
+| `signature-info.json` | 该次发布的签名信息（Subject / 指纹 / 有效期 / 时间戳），便于核对 |
+
+> 产物带 Authenticode 签名与时间戳，但当前使用**自签名开发证书**，根证书不受信，
+> 首次运行 SmartScreen 仍可能提示「未知发布者」——点「更多信息 → 仍要运行」即可。
+> 每个 Release 的 `signature-info.json` 里记录了指纹，可用 `Get-AuthenticodeSignature` 核对。
+
+---
 ## 快速开始
 
 ```powershell
