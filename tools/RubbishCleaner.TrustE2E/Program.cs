@@ -54,10 +54,10 @@ Directory.CreateDirectory(root);
 Log.Configure(logDir);
 
 const string Url = TrustTableUpdater.DefaultGitHubRawUrl;
-const int ExpectedRemoteVersion = 2;
+const int ExpectedRemoteVersion = 3;
 const int ExpectedWhitelist = 19;
-const int ExpectedBlacklist = 7;
-const string ExpectedUpdated = "2026-10-24";
+const int ExpectedBlacklist = 26;
+const string ExpectedUpdated = "2026-10-27";
 
 var builtin = BuiltInTrustTable.Create();
 
@@ -75,11 +75,11 @@ Console.WriteLine();
 //
 // 本探针 ProjectReference 了 RubbishCleaner.App，构建时 App.csproj 的
 // <None Update="Resources\trust-table.json" CopyToOutputDirectory="PreserveNewest">
-// 会把 src/RubbishCleaner.App/Resources/trust-table.json（version=2）复制到
+// 会把 src/RubbishCleaner.App/Resources/trust-table.json（version=3）复制到
 // tools/RubbishCleaner.TrustE2E/bin/<cfg>/<tfm>/Resources/trust-table.json。
 // 而 TrustTableLoader.DefaultAppTablePath() 正是 AppContext.BaseDirectory\Resources\trust-table.json，
 // TrustTableUpdater 检查更新时取三层合并版本（内置表 → 程序目录表 → 用户表），
-// 于是探针输出目录里这张 v2 的表会让"本地是旧版本"的所有场景直接失效（Current 恒为 2，永远「已是最新」）。
+// 于是探针输出目录里这张随版本走的表会让"本地是旧版本"的所有场景直接失效（Current 恒为程序目录表版本，永远「已是最新」）。
 //
 // 所以运行前把它临时移出输出目录（备份到探针目录），跑完再放回：
 // 这样测的才是"老安装只有内置表 v1 + 远程 v2"的真实升级链路。
@@ -145,8 +145,8 @@ UpdateCheckResult? checkA = null;
     Console.WriteLine($"  Available={checkA.Available} Current={checkA.CurrentVersion} Remote={checkA.RemoteVersion} Updated={checkA.RemoteUpdatedDate ?? "null"} Error={checkA.ErrorMessage ?? "null"} 耗时={sw.ElapsedMilliseconds} ms");
     Check("a.1 Available=true", checkA.Available);
     Check("a.2 CurrentVersion=1（无用户层文件，取合并后的内置表版本）", checkA.CurrentVersion == 1, $"实际 {checkA.CurrentVersion}");
-    Check("a.3 RemoteVersion=2", checkA.RemoteVersion == ExpectedRemoteVersion, $"实际 {checkA.RemoteVersion}");
-    Check("a.4 RemoteUpdatedDate=2026-10-24", checkA.RemoteUpdatedDate == ExpectedUpdated, checkA.RemoteUpdatedDate ?? "null");
+    Check($"a.3 RemoteVersion={ExpectedRemoteVersion}", checkA.RemoteVersion == ExpectedRemoteVersion, $"实际 {checkA.RemoteVersion}");
+    Check($"a.4 RemoteUpdatedDate={ExpectedUpdated}", checkA.RemoteUpdatedDate == ExpectedUpdated, checkA.RemoteUpdatedDate ?? "null");
     Check("a.5 ErrorMessage 为空", checkA.ErrorMessage is null, checkA.ErrorMessage ?? "null");
     Check("a.6 仅检查不落盘", !File.Exists(tempTarget), File.Exists(tempTarget) ? "目标文件被创建" : "");
 }
@@ -165,7 +165,7 @@ UpdateResult? updateB = null;
     sw.Stop();
     Console.WriteLine($"  Success={updateB.Success} Message={updateB.Message} {updateB.OldVersion}→{updateB.NewVersion} File={updateB.FilePath ?? "null"} 耗时={sw.ElapsedMilliseconds} ms");
     Check("b.1 Success=true", updateB.Success, updateB.Message);
-    Check("b.2 版本 1 → 2（旧版本取合并后的内置表版本）", updateB.OldVersion == 1 && updateB.NewVersion == ExpectedRemoteVersion, $"{updateB.OldVersion}→{updateB.NewVersion}");
+    Check($"b.2 版本 1 → {ExpectedRemoteVersion}（旧版本取合并后的内置表版本）", updateB.OldVersion == 1 && updateB.NewVersion == ExpectedRemoteVersion, $"{updateB.OldVersion}→{updateB.NewVersion}");
     Check("b.3 FilePath 指向探针临时目标", string.Equals(updateB.FilePath, tempTarget, StringComparison.OrdinalIgnoreCase), updateB.FilePath ?? "null");
     Check("b.4 目标文件已生成", File.Exists(tempTarget));
     if (File.Exists(tempTarget))
@@ -202,10 +202,10 @@ Console.WriteLine("[c] 复验写盘结果（重新读文件）");
 
         var table = TrustTableLoader.Parse(json, "e2e-user");
         Console.WriteLine($"  Version={table.Version} Updated={table.Updated ?? "null"} Source={table.Source} 白={table.Whitelist.Count} 黑={table.Blacklist.Count}");
-        Check("c.3 Version=2", table.Version == ExpectedRemoteVersion, $"实际 {table.Version}");
+        Check($"c.3 Version={ExpectedRemoteVersion}", table.Version == ExpectedRemoteVersion, $"实际 {table.Version}");
         Check("c.4 白名单 19 条", table.Whitelist.Count == ExpectedWhitelist, $"实际 {table.Whitelist.Count}");
-        Check("c.5 黑名单 7 条", table.Blacklist.Count == ExpectedBlacklist, $"实际 {table.Blacklist.Count}");
-        Check("c.6 Updated=2026-10-24", table.Updated == ExpectedUpdated, table.Updated ?? "null");
+        Check($"c.5 黑名单 {ExpectedBlacklist} 条", table.Blacklist.Count == ExpectedBlacklist, $"实际 {table.Blacklist.Count}");
+        Check($"c.6 Updated={ExpectedUpdated}", table.Updated == ExpectedUpdated, table.Updated ?? "null");
 
         var whiteTypes = table.Whitelist.GroupBy(r => r.Type).OrderBy(g => g.Key.ToString(), StringComparer.Ordinal)
             .Select(g => $"{g.Key}×{g.Count()}");
@@ -217,9 +217,9 @@ Console.WriteLine("[c] 复验写盘结果（重新读文件）");
         // 合并视角（探针上下文没有 app 层，app 层文件不存在）
         var mergedNoApp = TrustTableLoader.Load(noAppTablePath, tempTarget);
         Console.WriteLine($"  合并(无 app 层): v{mergedNoApp.Version} 白={mergedNoApp.Whitelist.Count} 黑={mergedNoApp.Blacklist.Count} Source={mergedNoApp.Source}");
-        Check("c.7 合并后版本=2（max）", mergedNoApp.Version == ExpectedRemoteVersion, $"{mergedNoApp.Version}");
-        Check("c.8 合并后白名单 19（与内置 9 条去重）", mergedNoApp.Whitelist.Count == ExpectedWhitelist, $"{mergedNoApp.Whitelist.Count}");
-        Check("c.9 合并后黑名单 7（与内置 6 条去重）", mergedNoApp.Blacklist.Count == ExpectedBlacklist, $"{mergedNoApp.Blacklist.Count}");
+        Check($"c.7 合并后版本={ExpectedRemoteVersion}（max）", mergedNoApp.Version == ExpectedRemoteVersion, $"{mergedNoApp.Version}");
+        Check($"c.8 合并后白名单 {ExpectedWhitelist}（与内置 9 条去重）", mergedNoApp.Whitelist.Count == ExpectedWhitelist, $"{mergedNoApp.Whitelist.Count}");
+        Check($"c.9 合并后黑名单 {ExpectedBlacklist}（与内置 6 条去重）", mergedNoApp.Blacklist.Count == ExpectedBlacklist, $"{mergedNoApp.Blacklist.Count}");
 
         // 生产形态：app 层指向仓库 Resources\trust-table.json
         var repoRoot = FindRepoRoot();
@@ -234,7 +234,7 @@ Console.WriteLine("[c] 复验写盘结果（重新读文件）");
             {
                 var mergedProd = TrustTableLoader.Load(appTablePath, tempTarget);
                 Console.WriteLine($"  合并(生产形态): v{mergedProd.Version} 白={mergedProd.Whitelist.Count} 黑={mergedProd.Blacklist.Count} Source={mergedProd.Source}");
-                Check("c.10 生产形态合并版本=2", mergedProd.Version == ExpectedRemoteVersion, $"{mergedProd.Version}");
+                Check($"c.10 生产形态合并版本={ExpectedRemoteVersion}", mergedProd.Version == ExpectedRemoteVersion, $"{mergedProd.Version}");
             }
             else
             {
@@ -256,8 +256,8 @@ Console.WriteLine("[d] 再次检查更新（期望已是最新）");
     sw.Stop();
     Console.WriteLine($"  Available={result.Available} Current={result.CurrentVersion} Remote={result.RemoteVersion} Error={result.ErrorMessage ?? "null"} 耗时={sw.ElapsedMilliseconds} ms");
     Check("d.1 Available=false", !result.Available);
-    Check("d.2 CurrentVersion=2", result.CurrentVersion == ExpectedRemoteVersion, $"实际 {result.CurrentVersion}");
-    Check("d.3 RemoteVersion=2", result.RemoteVersion == ExpectedRemoteVersion, $"实际 {result.RemoteVersion}");
+    Check($"d.2 CurrentVersion={ExpectedRemoteVersion}", result.CurrentVersion == ExpectedRemoteVersion, $"实际 {result.CurrentVersion}");
+    Check($"d.3 RemoteVersion={ExpectedRemoteVersion}", result.RemoteVersion == ExpectedRemoteVersion, $"实际 {result.RemoteVersion}");
     Check("d.4 ErrorMessage 为空", result.ErrorMessage is null, result.ErrorMessage ?? "null");
 }
 {
@@ -281,7 +281,7 @@ Console.WriteLine("[e] 回滚：删除用户层文件后重读（期望回落内
 
     var fallback = TrustTableLoader.Load(noAppTablePath, tempTarget);
     Console.WriteLine($"  回滚后: v{fallback.Version} Updated={fallback.Updated ?? "null"} Source={fallback.Source} 白={fallback.Whitelist.Count} 黑={fallback.Blacklist.Count}");
-    Check("e.2 版本回落 2 → 1", fallback.Version == builtin.Version, $"{fallback.Version}");
+    Check($"e.2 版本回落 {ExpectedRemoteVersion} → {builtin.Version}", fallback.Version == builtin.Version, $"{fallback.Version}");
     Check("e.3 Updated 回落 2026-10-23", fallback.Updated == builtin.Updated, fallback.Updated ?? "null");
     Check("e.4 Source=builtin", fallback.Source == "builtin", fallback.Source);
     Check("e.5 白名单回落 9 条", fallback.Whitelist.Count == builtin.Whitelist.Count, $"{fallback.Whitelist.Count}");
@@ -409,10 +409,10 @@ Console.WriteLine("[g] 真实默认路径（生产构造函数 TrustTableUpdater
             var json = await File.ReadAllTextAsync(realPath);
             var t = TrustTableLoader.Parse(json, "programdata");
             Console.WriteLine($"  写入结果: {new FileInfo(realPath).Length} B v{t.Version} Updated={t.Updated ?? "null"} 白={t.Whitelist.Count} 黑={t.Blacklist.Count}");
-            Check("g.6 默认路径文件 v2", t.Version == ExpectedRemoteVersion, $"{t.Version}");
-            Check("g.7 默认路径白名单 19", t.Whitelist.Count == ExpectedWhitelist, $"{t.Whitelist.Count}");
-            Check("g.8 默认路径黑名单 7", t.Blacklist.Count == ExpectedBlacklist, $"{t.Blacklist.Count}");
-            Check("g.9 默认路径 Updated=2026-10-24", t.Updated == ExpectedUpdated, t.Updated ?? "null");
+            Check($"g.6 默认路径文件 v{ExpectedRemoteVersion}", t.Version == ExpectedRemoteVersion, $"{t.Version}");
+            Check($"g.7 默认路径白名单 {ExpectedWhitelist}", t.Whitelist.Count == ExpectedWhitelist, $"{t.Whitelist.Count}");
+            Check($"g.8 默认路径黑名单 {ExpectedBlacklist}", t.Blacklist.Count == ExpectedBlacklist, $"{t.Blacklist.Count}");
+            Check($"g.9 默认路径 Updated={ExpectedUpdated}", t.Updated == ExpectedUpdated, t.Updated ?? "null");
         }
     }
     catch (Exception ex)

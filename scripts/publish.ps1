@@ -1,9 +1,19 @@
 ﻿# 单文件绿色版发布脚本
-# 用法：.\scripts\publish.ps1 [-Runtime win-x64] [-Output dist\win-x64]
+# 用法：
+#   .\scripts\publish.ps1 [-Runtime win-x64] [-Output dist\win-x64]
+#   .\scripts\publish.ps1 -Sign                 # 发布后做 Authenticode 签名（无证书时自动跳过）
+#
+# 签名说明（见 docs/technical/技术设计文档.md §11.3）：
+#   - 证书来源：certs\rubbishcleaner-dev.pfx（开发自签名，先用 make-signing-cert.ps1 生成）
+#   - 也可用 -Thumbprint 指定证书库里的 OV/EV 代码签名证书
+#   - 找不到证书不算失败：脚本会打印「未签名」并继续，退出码仍为 0
 
 param(
     [string]$Runtime = 'win-x64',
-    [string]$Output = ''
+    [string]$Output = '',
+    [switch]$Sign,
+    [string]$Thumbprint = '',
+    [switch]$NoTimestamp
 )
 
 $ErrorActionPreference = 'Stop'
@@ -42,6 +52,30 @@ try {
     else {
         Write-Host '==> 未找到 RubbishCleaner.exe，请检查输出目录' -ForegroundColor Yellow
         Get-ChildItem $Output | Select-Object Name, Length
+    }
+
+    # ---------- 代码签名 ----------
+    if ($Sign) {
+        if (-not (Test-Path $exe)) {
+            throw '开启了 -Sign 但没找到 RubbishCleaner.exe'
+        }
+        $signArgs = @{ Path = $exe }
+        if (-not [string]::IsNullOrWhiteSpace($Thumbprint)) { $signArgs['Thumbprint'] = $Thumbprint }
+        if ($NoTimestamp) { $signArgs['NoTimestamp'] = $true }
+
+        Write-Host '==> 开始签名' -ForegroundColor Cyan
+        & (Join-Path $PSScriptRoot 'sign.ps1') @signArgs
+        $signExit = $LASTEXITCODE
+        if ($signExit -eq 2) {
+            Write-Host '==> 未签名：没有可用代码签名证书（发布产物仍可用，但 SmartScreen 会提示）' -ForegroundColor Yellow
+            Write-Host '    生成开发用自签名证书：.\scripts\make-signing-cert.ps1' -ForegroundColor Yellow
+        }
+        elseif ($signExit -ne 0) {
+            throw "签名失败（exit $signExit）"
+        }
+    }
+    else {
+        Write-Host '==> 已跳过签名（如需签名加 -Sign）' -ForegroundColor DarkGray
     }
 }
 finally {

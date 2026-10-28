@@ -1,0 +1,101 @@
+{
+  "version": 3,
+  "updated": "2026-10-27",
+  "blacklist": [
+    {
+      "type": "signer",
+      "value": "上海广乐网络科技有限公司",
+      "note": "快压 KuaiZip，捆绑安装并静默推装全家桶，安装包曾携带恶意组件；来源：Malware-Patch kuaizip.cer、chinawareblock 全家桶及浏览器/上海广乐-快压、SoftCnKiller sign.txt"
+    },
+    {
+      "type": "signer",
+      "value": "上海展盟网络科技有限公司",
+      "note": "7654 浏览器、小黑记事本、7654 压缩，捆绑安装并劫持浏览器主页；来源：Malware-Patch 7654 note.cer、chinawareblock 上海展盟-全系列、SoftCnKiller sign.txt"
+    },
+    {
+      "type": "signer",
+      "value": "Shanghai Oriental Webcasting Co. Ltd.",
+      "note": "东方输入法、头条视频，捆绑安装并弹窗推广；来源：Malware-Patch donfang toutiao.cer、chinawareblock 不受欢迎/东方输入法、SoftCnKiller sign.txt"
+    },
+    {
+      "type": "signer",
+      "value": "Shanghai 2345 Mobile Technology Co., Ltd.",
+      "note": "2345 浏览器、2345 看图王，捆绑安装、篡改主页、卸载残留；来源：Malware-Patch 2345 browser.cer、chinawareblock 2345-浏览器/2345-看图、媒体报道"
+    },
+    {
+      "type": "signer",
+      "value": "Chongqing Zhongcheng Network Technology Co. Ltd.",
+      "note": "重橙「国内版 Flash」，冒充 Adobe Flash 静默安装并常驻弹广告；来源：Malware-Patch zhongcheng (flash cn).cer、chinawareblock 重橙-flash中国特供"
+    },
+    {
+      "type": "signer",
+      "value": "Shenzhen Chongcheng Yuanshun Technology Co. Ltd",
+      "note": "起点小说推广客户端，捆绑安装与弹窗推广；来源：Malware-Patch qidian.cer、SoftCnKiller sign.txt（深圳市重诚远顺科技）"
+    },
+    {
+      "type": "signer",
+      "value": "Shenzhen Drive The Life Technology Co.,Ltd.",
+      "note": "驱动人生，捆绑安装、驱动推广弹窗、静默装全家桶；来源：Malware-Patch driveTheLife.cer 四期证书、chinawareblock 160-驱动人生"
+    },
+    {
+      "type": "signer",
+      "value": "Qingdao Ruanmei Network Technology Co.,Ltd.",
+      "note": "软媒魔方，捆绑安装、弹窗推广、篡改主页；来源：Malware-Patch ruanmei.cer、chinawareblock 不受欢迎/软媒-魔方 四期证书"
+    },
+    {
+      "type": "signer",
+      "value": "Chengdu Aishang Office Technology Co., Ltd.",
+      "note": "迅读 PDF 大师，捆绑安装并常驻独立广告组件目录；来源：Malware-Patch xundu.cer、SoftCnKiller sign.txt 与 folder.txt 迅读广告组件映射"
+    },
+    {
+      "type": "signer",
+      "value": "Anhui Shabake Network Technology Co., Ltd.",
+      "note": "沙巴克系 P2P 下载器与广告推广组件，静默安装；来源：Malware-Patch shabake.cer、SoftCnKiller sign.txt"
+    },
+    {
+      "type": "signer",
+      "value": "Guangdong Fengqi Technology Co., Ltd.",
+      "note": "风启推广组件，捆绑安装与静默推广；来源：Malware-Patch fengqi (at).cer、SoftCnKiller sign.txt"
+    },
+    {
+      "type": "signer",
+      "value": "Tuling Times Information Technology (Beijing) Co., Ltd.",
+      "note": "图灵时代推广组件，静默安装；来源：Malware-Patch tuling times.cer、SoftCnKiller sign.txt"
+    },
+    {
+      "type": "signer",
+      "value": "合肥听风雨网络科技有限公司",
+      "note": "听风雨推广组件，随风行系软件捆绑安装；来源：Malware-Patch tingfengyu (at).cer、SoftCnKiller sign.txt"
+    },
+    {
+      "type": "signer",
+      "value": "Hefei Yunbiao Information Technology Co., Ltd.",
+      "note": "云表，捆绑安装与推广弹窗；来源：Malware-Patch yunbiao.cer、SoftCnKiller sign.txt（Hefei Yunbiao/合肥云表信息科技）"
+    },
+    {
+      "type": "signer",
+      "value": "风尚云起文化传媒（北京）有限公司",
+      "note": "6789 游戏盒子、6789 压缩，捆绑安装与推广弹窗；来源：Malware-Patch 6789.cer、SoftCnKiller sign.txt 与 folder.txt 6789GameBox 映射"
+    },
+    {
+      "type": "signer",
+      "value": "Beijing Funshion Online Technologies Ltd.",
+      "note": "风行视频加速器，捆绑安装并常驻推广；来源：Malware-Patch funshion.cer、SoftCnKiller sign.txt 与 folder.txt 加速器目录"
+    },
+    {
+      "type": "signer",
+      "value": "暴风集团股份有限公司",
+      "note": "暴风影音，捆绑安装、弹窗广告，公司破产后仍残留升级服务；来源：Malware-Patch baofeng.cer 多期、chinawareblock 过期证书/暴风影音、SoftCnKiller sign.txt"
+    },
+    {
+      "type": "signer",
+      "value": "Guangxi Yunao Network Technology Co., Ltd.",
+      "note": "WindSoul 推广组件，静默安装（2024 年仍在续签证书）；来源：Malware-Patch windsoul.cer、SoftCnKiller sign.txt"
+    },
+    {
+      "type": "signer",
+      "value": "Shanghai Shaji Network Technology Co., Ltd",
+      "note": "永楚推广组件，捆绑安装；来源：Malware-Patch shaji.cer EV 证书、SoftCnKiller sign.txt（上海永楚网络科技）"
+    }
+  ]
+}

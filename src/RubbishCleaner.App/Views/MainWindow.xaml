@@ -1302,6 +1302,7 @@
           <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
           </Grid.RowDefinitions>
 
           <!-- 左列：联网与特征库更新 -->
@@ -1363,6 +1364,159 @@
               <Button Content="重新查看引导" Padding="12,4" Margin="0,12,0,0" HorizontalAlignment="Left"
                       Command="{Binding ResetOnboardingCommand}"
                       ToolTip="把「已看过引导」的标记改回未看过并保存，引导立即重新显示" />
+            </StackPanel>
+          </Border>
+
+          <!-- 跨三列：特征库离线编辑（v0.9）——内置层与程序目录层只读，只有用户层可改 -->
+          <Border Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3"
+                  Style="{StaticResource Card}" VerticalAlignment="Top" Margin="0,16,0,0">
+            <StackPanel>
+              <TextBlock Text="特征库规则（离线编辑）" Style="{StaticResource TitleText}" />
+              <TextBlock Style="{StaticResource SecondaryText}" TextWrapping="Wrap" Margin="0,6,0,0"
+                         Text="内置层与程序目录层只读；这里的新增、修改、删除只作用于用户层 trust-table.json。保存时会自动提升版本号，客户端下次检查更新即可拉到。" />
+
+              <Grid Margin="0,12,0,0">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*" MinWidth="320" />
+                  <ColumnDefinition Width="20" />
+                  <ColumnDefinition Width="360" />
+                </Grid.ColumnDefinitions>
+
+                <!-- 左：规则列表 -->
+                <Grid Grid.Column="0">
+                  <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                  </Grid.RowDefinitions>
+
+                  <Grid Grid.Row="0" Margin="0,0,12,0">
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="76" />
+                      <ColumnDefinition Width="76" />
+                      <ColumnDefinition Width="96" />
+                      <ColumnDefinition Width="*" MinWidth="140" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="来源层" Style="{StaticResource SecondaryText}" FontSize="12" />
+                    <TextBlock Grid.Column="1" Text="名单" Style="{StaticResource SecondaryText}" FontSize="12" />
+                    <TextBlock Grid.Column="2" Text="类型" Style="{StaticResource SecondaryText}" FontSize="12" />
+                    <TextBlock Grid.Column="3" Text="值 / 备注" Style="{StaticResource SecondaryText}" FontSize="12" />
+                  </Grid>
+
+                  <ListBox Grid.Row="1" Height="260" ItemsSource="{Binding Settings.TrustEntries}"
+                           SelectedItem="{Binding Settings.SelectedTrustEntry, Mode=TwoWay}"
+                           BorderThickness="1" BorderBrush="{StaticResource BorderBrush}" Background="Transparent"
+                           ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                           VirtualizingPanel.IsVirtualizing="True">
+                    <ListBox.ItemTemplate>
+                      <DataTemplate>
+                        <Grid Margin="0,2">
+                          <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="76" />
+                            <ColumnDefinition Width="76" />
+                            <ColumnDefinition Width="96" />
+                            <ColumnDefinition Width="*" MinWidth="140" />
+                          </Grid.ColumnDefinitions>
+                          <TextBlock Grid.Column="0" Text="{Binding LayerText}" VerticalAlignment="Center">
+                            <TextBlock.Style>
+                              <Style TargetType="TextBlock">
+                                <Setter Property="Foreground" Value="#1A7F37" />
+                                <Style.Triggers>
+                                  <DataTrigger Binding="{Binding IsReadOnly}" Value="True">
+                                    <Setter Property="Foreground" Value="#9CA3AF" />
+                                  </DataTrigger>
+                                </Style.Triggers>
+                              </Style>
+                            </TextBlock.Style>
+                          </TextBlock>
+                          <TextBlock Grid.Column="1" Text="{Binding ListText}" VerticalAlignment="Center"
+                                     Style="{StaticResource SecondaryText}" />
+                          <TextBlock Grid.Column="2" Text="{Binding TypeText}" VerticalAlignment="Center"
+                                     Style="{StaticResource SecondaryText}" />
+                          <StackPanel Grid.Column="3" Margin="0,0,8,0">
+                            <TextBlock Text="{Binding Value}" TextTrimming="CharacterEllipsis"
+                                       ToolTip="{Binding Value}" VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding Note}"
+                                       FontSize="11" TextTrimming="CharacterEllipsis">
+                              <TextBlock.Style>
+                                <Style TargetType="TextBlock" BasedOn="{StaticResource SecondaryText}">
+                                  <Setter Property="Visibility" Value="Visible" />
+                                  <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Note}" Value="{x:Null}">
+                                      <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                  </Style.Triggers>
+                                </Style>
+                              </TextBlock.Style>
+                            </TextBlock>
+                          </StackPanel>
+                        </Grid>
+                      </DataTemplate>
+                    </ListBox.ItemTemplate>
+                  </ListBox>
+                </Grid>
+
+                <!-- 右：编辑区 + 导入导出 -->
+                <StackPanel Grid.Column="2">
+                  <TextBlock Text="规则类型" Style="{StaticResource SecondaryText}" FontSize="12" />
+                  <ComboBox Margin="0,4,0,0" ItemsSource="{Binding Settings.TrustRuleTypes}"
+                            DisplayMemberPath="DisplayName"
+                            SelectedItem="{Binding Settings.SelectedRuleType, Mode=TwoWay}" />
+
+                  <TextBlock Text="规则值" Style="{StaticResource SecondaryText}" FontSize="12" Margin="0,10,0,0" />
+                  <TextBox Margin="0,4,0,0"
+                           Text="{Binding Settings.RuleValueText, UpdateSourceTrigger=PropertyChanged}"
+                           ToolTip="path 类型必须以反斜杠结尾；namePattern 可用 * 和 ? 通配。" />
+
+                  <TextBlock Text="备注（可空）" Style="{StaticResource SecondaryText}" FontSize="12" Margin="0,10,0,0" />
+                  <TextBox Margin="0,4,0,0"
+                           Text="{Binding Settings.RuleNoteText, UpdateSourceTrigger=PropertyChanged}" />
+
+                  <CheckBox Margin="0,10,0,0" IsChecked="{Binding Settings.RuleIsBlacklist, Mode=TwoWay}"
+                            Content="加入黑名单（不勾选则加入白名单）"
+                            ToolTip="黑名单优先级高于白名单：命中黑名单一律判定为风险。" />
+
+                  <WrapPanel Margin="0,12,0,0">
+                    <Button Content="新增规则" Padding="12,4" Command="{Binding Settings.AddTrustRuleCommand}"
+                            ToolTip="把上面的类型和值追加到用户层" />
+                    <Button Content="保存修改" Padding="12,4" Margin="8,0,0,0"
+                            Command="{Binding Settings.UpdateTrustRuleCommand}"
+                            ToolTip="用上面的内容覆盖列表中选中的用户层规则（只读层不可改）" />
+                    <Button Content="删除规则" Padding="12,4" Margin="8,0,0,0"
+                            Command="{Binding Settings.DeleteTrustRuleCommand}"
+                            ToolTip="删除只作用于用户层；内置层与程序目录层无法删除" />
+                  </WrapPanel>
+
+                  <TextBlock Text="{Binding Settings.SelectionNotice}" Style="{StaticResource SecondaryText}"
+                             TextWrapping="Wrap" FontSize="12" Margin="0,10,0,0" />
+
+                  <Separator Margin="0,14,0,10" />
+
+                  <WrapPanel>
+                    <Button Content="导入 JSON" Padding="12,4" Command="{Binding Settings.ImportTrustTableCommand}"
+                            ToolTip="只追加用户层还没有的规则；重复与非法条目会分别计数并跳过" />
+                    <Button Content="导出用户层" Padding="12,4" Margin="8,0,0,0"
+                            Command="{Binding Settings.ExportTrustTableCommand}"
+                            ToolTip="导出用户层规则，与导入形成往返闭环" />
+                    <Button Content="导出合并表（全部规则）" Padding="12,4" Margin="8,0,0,0"
+                            Command="{Binding Settings.ExportMergedTrustTableCommand}"
+                            ToolTip="导出三层合并后的全部规则；重新导入时只会写入用户层没有的规则，内置层与程序目录层条目不会被复制进用户层" />
+                  </WrapPanel>
+
+                  <TextBlock Text="{Binding Settings.TrustEditorStatusText}" TextWrapping="Wrap"
+                             FontSize="12" Margin="0,10,0,0"
+                             Visibility="{Binding Settings.TrustEditorStatusText, Converter={StaticResource BoolToVisibility}}" />
+
+                  <TextBlock Style="{StaticResource SecondaryText}" TextWrapping="Wrap" FontSize="11" Margin="0,10,0,0">
+                    <Run Text="用户层：" /><Run Text="{Binding Settings.UserTablePath, Mode=OneWay}" />
+                  </TextBlock>
+                  <TextBlock Style="{StaticResource SecondaryText}" TextWrapping="Wrap" FontSize="11" Margin="0,2,0,0">
+                    <Run Text="规则条数：合并 " /><Run Text="{Binding Settings.MergedRuleCount, Mode=OneWay}" />
+                    <Run Text=" 条（版本 v" /><Run Text="{Binding Settings.MergedVersion, Mode=OneWay}" />
+                    <Run Text="），用户层 " /><Run Text="{Binding Settings.UserRuleCount, Mode=OneWay}" />
+                    <Run Text=" 条" />
+                  </TextBlock>
+                </StackPanel>
+              </Grid>
             </StackPanel>
           </Border>
         </Grid>

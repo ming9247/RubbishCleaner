@@ -8,7 +8,10 @@
 *.json text eol=crlf
 *.md text eol=lf
 
-# PowerShell 脚本必须带 BOM 且用 CRLF，否则 Windows PowerShell 5.1 会把中文按 ANSI 解析
-*.ps1 text eol=crlf working-tree-encoding=UTF-8-BOM
+# PowerShell 脚本必须带 BOM 且用 CRLF，否则 Windows PowerShell 5.1 会把中文按 ANSI 解析。
+# 注意：这里刻意**不用** working-tree-encoding=UTF-8-BOM —— 部分 Git for Windows 构建的
+# iconv 没有 UTF-8-BOM 别名，`git add` 会直接报 "failed to encode ... from UTF-8-BOM to UTF-8"，
+# 连脚本都提交不了。改为把 BOM 作为普通内容存进 blob（检出时原样落盘），效果一样且不依赖 iconv。
+*.ps1 text eol=crlf
 
 *.png binary
