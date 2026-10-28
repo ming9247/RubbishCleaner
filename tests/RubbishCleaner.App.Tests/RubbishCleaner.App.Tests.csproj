@@ -25,4 +25,15 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!--
+      布局回归测试要读真实的 MainWindow.xaml 源文件（v0.9.2）。
+      用 Link + CopyToOutputDirectory 而不是「从 bin 往上找仓库根」：
+      测试从任何工作目录跑都能拿到同一份文件，不依赖目录层级。
+    -->
+    <None Include="..\..\src\RubbishCleaner.App\Views\MainWindow.xaml"
+          Link="Xaml\MainWindow.xaml"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
