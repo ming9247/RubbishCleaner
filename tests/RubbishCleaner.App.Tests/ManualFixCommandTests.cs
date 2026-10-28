@@ -110,6 +110,31 @@ public class ManualFixCommandTests
     }
 
     [Fact]
+    public void TaskDefinitionFile_SelectsTheFileAndSaysAdminNeeded()
+    {
+        var (vm, opened, args, _) = Create();
+        var file = Path.Combine(Path.GetTempPath(), $"rc-taskdef-{Guid.NewGuid():N}");
+        File.WriteAllText(file, "<Task />");
+        try
+        {
+            var item = new ManualFixItem(Guide("SomeTask", StartupSourceKind.ScheduledTask,
+                ManualFixTargetKind.TaskDefinitionFile, file));
+
+            Assert.Contains("定义文件", item.OpenTargetText);
+
+            vm.OpenManualFixTargetCommand.Execute(item);
+
+            Assert.Equal(["explorer.exe"], opened);
+            Assert.Contains("/select", args[0]);
+            Assert.Contains("管理员权限", vm.StatusText);
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+    }
+
+    [Fact]
     public void CopyCommand_PutsTextOnClipboardAndReportsIt()
     {
         var (vm, _, _, copied) = Create();

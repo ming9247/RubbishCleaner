@@ -72,7 +72,8 @@ public class ManualFixAdvisorTests
         // schtasks 要求任务名以 \ 开头，否则找不到任务
         var entry = Entry("MyTask", StartupSourceKind.ScheduledTask);
 
-        var guide = ManualFixAdvisor.For(entry);
+        // 注册探测在生产里走真实注册表；这里固定为"已注册"，专测命令拼装。
+        var guide = ManualFixAdvisor.For(entry, isTaskRegistered: _ => true);
 
         Assert.NotNull(guide);
         Assert.Equal(@"schtasks.exe /Delete /TN ""\MyTask"" /F", guide!.Command);
@@ -83,7 +84,7 @@ public class ManualFixAdvisorTests
     {
         var entry = Entry(@"\Microsoft\Windows\MyTask", StartupSourceKind.ScheduledTask);
 
-        var guide = ManualFixAdvisor.For(entry);
+        var guide = ManualFixAdvisor.For(entry, isTaskRegistered: _ => true);
 
         // 已有前导反斜杠时不能重复添加
         Assert.Equal(@"schtasks.exe /Delete /TN ""\Microsoft\Windows\MyTask"" /F", guide!.Command);
@@ -133,7 +134,7 @@ public class ManualFixAdvisorTests
     [Fact]
     public void ScheduledTask_TargetsTaskSchedulerWithNormalizedName()
     {
-        var guide = ManualFixAdvisor.For(Entry("MyTask", StartupSourceKind.ScheduledTask));
+        var guide = ManualFixAdvisor.For(Entry("MyTask", StartupSourceKind.ScheduledTask), isTaskRegistered: _ => true);
 
         Assert.Equal(ManualFixTargetKind.ScheduledTask, guide!.Target);
         // 任务计划程序里显示的完整名以 \ 开头，复制给用户时必须是这个形态
@@ -149,6 +150,50 @@ public class ManualFixAdvisorTests
 
         Assert.Equal(ManualFixTargetKind.StartupFolder, guide!.Target);
         Assert.Equal(Path.Combine(location, "SomeApp.lnk"), guide.TargetPath);
+    }
+
+    [Fact]
+    public void TaskRegistered_KeepsSchtasksCommand()
+    {
+        var entry = Entry("MyTask", StartupSourceKind.ScheduledTask);
+
+        var guide = ManualFixAdvisor.For(entry, isTaskRegistered: _ => true);
+
+        Assert.Equal(ManualFixTargetKind.ScheduledTask, guide!.Target);
+        Assert.Contains("schtasks.exe /Delete", guide.Command);
+        Assert.DoesNotContain("del /f", guide.Command);
+    }
+
+    [Fact]
+    public void TaskNotRegistered_PointsAtTheDefinitionFileInstead()
+    {
+        // 真机场景：OneDrive 升级后留下定义文件但没有注册项——
+        // 这时 schtasks 必然报「找不到」，必须改成"删那份文件"。
+        var entry = Entry("SomeTask-500", StartupSourceKind.ScheduledTask,
+            location: @"C:\Windows\System32\Tasks");
+
+        var guide = ManualFixAdvisor.For(entry, isTaskRegistered: _ => false);
+
+        Assert.Equal(ManualFixTargetKind.TaskDefinitionFile, guide!.Target);
+        Assert.Equal(@"C:\Windows\System32\Tasks\SomeTask-500", guide.TargetPath);
+        Assert.Contains("已不存在", guide.Title);
+        Assert.StartsWith("del /f /q", guide.Command);
+        Assert.Contains("SomeTask-500", guide.Command);
+    }
+
+    [Fact]
+    public void TaskRegistrationUnknown_KeepsSchtasksButMentionsFileFallback()
+    {
+        // 非管理员读不到 TaskCache 时不能瞎断言，命令保留，但要把"只剩定义文件"的出路写清楚
+        var entry = Entry("SomeTask", StartupSourceKind.ScheduledTask,
+            location: @"C:\Windows\System32\Tasks");
+
+        var guide = ManualFixAdvisor.For(entry, isTaskRegistered: _ => null);
+
+        Assert.Equal(ManualFixTargetKind.ScheduledTask, guide!.Target);
+        Assert.Contains("schtasks.exe /Delete", guide.Command);
+        Assert.Contains("只剩定义文件", guide.CommandHint);
+        Assert.Contains(@"C:\Windows\System32\Tasks\SomeTask", guide.CommandHint);
     }
 
     [Fact]

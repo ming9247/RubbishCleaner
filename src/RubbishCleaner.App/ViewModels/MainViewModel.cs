@@ -829,7 +829,9 @@ public sealed class MainViewModel : ObservableObject
                         }
                         OpenTargetHandler("explorer.exe", $"\"{folder}\"")  ;
                     }
-                    StatusText = $"已在资源管理器中定位「{item.EntryName}」，直接 Delete 即可（不需要管理员权限）。";
+                    StatusText = item.Target == ManualFixTargetKind.TaskDefinitionFile
+                        ? $"已在资源管理器中定位任务定义文件「{Path.GetFileName(target)}」，按 Delete 删除即可（需要管理员权限）。"
+                        : $"已在资源管理器中定位「{item.EntryName}」，直接 Delete 即可（不需要管理员权限）。";
                     break;
             }
 

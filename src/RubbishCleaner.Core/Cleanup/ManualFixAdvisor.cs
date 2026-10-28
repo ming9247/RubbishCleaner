@@ -1,3 +1,4 @@
+using RubbishCleaner.Core.Detection;
 using RubbishCleaner.Core.Models;
 
 namespace RubbishCleaner.Core.Cleanup;
@@ -19,6 +20,9 @@ public enum ManualFixTargetKind
 
     /// <summary>在资源管理器中定位启动文件夹里的快捷方式。</summary>
     StartupFolder,
+
+    /// <summary>任务已不在任务计划程序里，只剩一份定义文件——在资源管理器中定位那份文件。</summary>
+    TaskDefinitionFile,
 }
 
 /// <summary>
@@ -49,13 +53,20 @@ public static class ManualFixAdvisor
 {
     /// <summary>按启动项类型生成指引；无法给出建议时返回 null。</summary>
     public static ManualFixGuide? For(StartupEntry entry)
+        => For(entry, isTaskRegistered: null);
+
+    /// <param name="isTaskRegistered">
+    /// 任务是否还注册在「任务计划程序」里；<c>null</c> 时走真实的注册表探测。
+    /// 抽成参数是为了让"未注册 → 让用户删定义文件"这条分支可以在单测里确定性覆盖。
+    /// </param>
+    public static ManualFixGuide? For(StartupEntry entry, Func<string, bool?>? isTaskRegistered)
     {
         ArgumentNullException.ThrowIfNull(entry);
 
         return entry.Source switch
         {
             StartupSourceKind.WindowsService => ServiceGuide(entry),
-            StartupSourceKind.ScheduledTask => TaskGuide(entry),
+            StartupSourceKind.ScheduledTask => TaskGuide(entry, isTaskRegistered),
             StartupSourceKind.StartupFolderUser or StartupSourceKind.StartupFolderMachine => ShortcutGuide(entry),
             _ => null,
         };
@@ -88,8 +99,42 @@ public static class ManualFixAdvisor
             serviceName);
     }
 
-    private static ManualFixGuide TaskGuide(StartupEntry entry)
-        => new(
+    private static ManualFixGuide TaskGuide(StartupEntry entry, Func<string, bool?>? isTaskRegistered)
+    {
+        var relative = entry.Name.TrimStart('\\');
+        var definitionFile = Path.Combine(entry.Location, relative);
+        var registered = (isTaskRegistered ?? ScheduledTaskRegistration.IsRegistered)(entry.Name);
+
+        // 只剩定义文件：任务计划程序里根本没有它，schtasks 也会报「找不到该程序」。
+        // 真机遇到的就是这一种（OneDrive 升级留下的孤儿定义文件），所以必须给"删文件"的指引。
+        if (registered == false)
+        {
+            return new ManualFixGuide(
+                entry.Name,
+                entry.Source,
+                entry.ExecutablePath,
+                "残留的计划任务定义文件（任务计划程序里已不存在）",
+                "这个任务已经不在「任务计划程序」里了，只剩一份定义文件（卸载/升级时没清干净）。"
+                + "所以 schtasks /Delete 会报「找不到」，列表里也翻不到它——直接把下面这份文件删掉即可。",
+                $"del /f /q \"{definitionFile}\"",
+                $"文件位置：{definitionFile}",
+                ManualFixTargetKind.TaskDefinitionFile,
+                definitionFile);
+        }
+
+        // 已注册（或无权判断）：走 schtasks。无权判断时补一句"找不到就只剩定义文件"，
+        // 免得又出现"命令报找不到、用户在 UI 里翻不到"的困惑。
+        var hint = NormalizeTaskName(entry.Name) != entry.Name
+            ? $"任务名已按计划任务程序的规则补全为「{NormalizeTaskName(entry.Name)}」。"
+            : null;
+
+        if (registered is null)
+        {
+            hint = (hint is null ? string.Empty : hint + " ")
+                + $"若任务计划程序里找不到它，说明任务已注销、只剩定义文件，可直接删除：{definitionFile}";
+        }
+
+        return new ManualFixGuide(
             entry.Name,
             entry.Source,
             entry.ExecutablePath,
@@ -98,11 +143,10 @@ public static class ManualFixAdvisor
             + "找到对应任务 → 右键 → 删除。",
             // schtasks 必须用完整任务名（以 \ 开头），这里直接给出来
             $"schtasks.exe /Delete /TN \"{NormalizeTaskName(entry.Name)}\" /F",
-            NormalizeTaskName(entry.Name) != entry.Name
-                ? $"任务名已按计划任务程序的规则补全为「{NormalizeTaskName(entry.Name)}」。"
-                : null,
+            hint,
             ManualFixTargetKind.ScheduledTask,
             NormalizeTaskName(entry.Name));
+    }
 
     private static ManualFixGuide ShortcutGuide(StartupEntry entry)
         => new(

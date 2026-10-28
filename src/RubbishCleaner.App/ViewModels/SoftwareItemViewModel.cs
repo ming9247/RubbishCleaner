@@ -151,6 +151,7 @@ public sealed class ManualFixItem(ManualFixGuide guide)
     {
         ManualFixTargetKind.WindowsService => "打开「服务」并复制服务名",
         ManualFixTargetKind.ScheduledTask => "打开「任务计划程序」并复制任务名",
+        ManualFixTargetKind.TaskDefinitionFile => "在文件夹中选中该定义文件",
         _ => "在文件夹中选中该快捷方式",
     };
 
@@ -165,6 +166,10 @@ public sealed class ManualFixItem(ManualFixGuide guide)
             "1) 在弹出的「任务计划程序」里点左侧「任务计划程序库」，右侧列表按「名称」列排序\n"
             + "2) 按名字找到这条任务（任务名已复制到剪贴板；也可在「操作 → 查看 → 详细信息」里核对）\n"
             + "3) 右键 → 删除；或直接用管理员命令提示符执行上面那条 schtasks 命令",
+        ManualFixTargetKind.TaskDefinitionFile =>
+            "1) 资源管理器会直接选中这份任务定义文件（就在 C:\\Windows\\System32\\Tasks 下）\n"
+            + "2) 这个任务已经不在「任务计划程序」里了，schtasks 命令必然报「找不到」，不用再试\n"
+            + "3) 确认路径无误后按 Delete（需要管理员权限）；若提示被占用，先关掉「任务计划程序」窗口",
         _ => "资源管理器会直接选中这个快捷方式，按 Delete 删除即可（不需要管理员权限）",
     };
 
