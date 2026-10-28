@@ -42,6 +42,7 @@ public static class Program
 
         CheckInstalledAppsTab(tabs);
         CheckSettingsTab(tabs);
+        CheckMultiSelect(tabs);
 
         Console.WriteLine();
         Console.WriteLine(_failed == 0 ? "==> UI 探针全部通过" : $"==> UI 探针失败 {_failed} 项");
@@ -99,6 +100,34 @@ public static class Program
             Check(list.ActualHeight >= 100,
                 $"{height}px：列表必须有可见高度（实际 {list.ActualHeight:F0}px）");
         }
+        Console.WriteLine();
+    }
+
+    // ───────── 已安装软件：多选与卸载按钮（v0.9.3） ─────────
+
+    private static void CheckMultiSelect(TabControl tabs)
+    {
+        Console.WriteLine("[3] 已安装软件的多选支持");
+        var content = TabContent(tabs, "已安装软件");
+        Layout(content, 1200, 700);
+
+        var list = Descendants(content).OfType<ListBox>().FirstOrDefault();
+        if (list is null)
+        {
+            Fail("找不到软件列表 ListBox");
+            Console.WriteLine();
+            return;
+        }
+
+        Check(list.SelectionMode == SelectionMode.Extended,
+            $"ListBox.SelectionMode 必须是 Extended（实际 {list.SelectionMode}）——否则 Ctrl/Shift 多选无效");
+        Check(list.SelectionMode != SelectionMode.Single, "不能是默认的 Single");
+
+        var button = Descendants(content)
+            .OfType<Button>()
+            .FirstOrDefault(b => (b.Content as string)?.Contains("卸载选中") == true);
+        Check(button is not null && button.Command is not null,
+            "「卸载选中的软件」按钮存在且绑定了命令（多选时文案会变成「卸载选中的 N 个软件」）");
         Console.WriteLine();
     }
 

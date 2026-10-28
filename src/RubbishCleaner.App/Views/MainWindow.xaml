@@ -480,12 +480,16 @@
                 </Grid>
               </Border>
 
+              <!-- v0.9.3：SelectionMode=Extended 才支持 Ctrl/Shift 多选；SelectedItems 不是依赖属性，
+                   因此另用 code-behind 的 SelectionChanged 把选中项交给视图模型。 -->
               <ListBox Grid.Row="1" ItemsSource="{Binding Apps.FilteredApps}"
+                       SelectionMode="Extended"
                        SelectedItem="{Binding Apps.Selected, Mode=TwoWay}"
                        BorderThickness="0" Background="Transparent"
                        ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                        VirtualizingPanel.IsVirtualizing="True"
                        VirtualizingPanel.VirtualizationMode="Recycling"
+                       SelectionChanged="OnAppSelectionChanged"
                        MouseDoubleClick="OnAppListDoubleClick">
                 <ListBox.ItemTemplate>
                   <DataTemplate>
@@ -559,10 +563,10 @@
                            Visibility="{Binding Apps.ErrorText, Converter={StaticResource BoolToVisibility}}" />
               </StackPanel>
 
-              <Button Grid.Column="1" Content="卸载选中的软件"
+              <Button Grid.Column="1" Content="{Binding Apps.UninstallButtonText}"
                       Background="#FDECEC" BorderBrush="#E8B4B4" Foreground="#B42318"
                       Command="{Binding Apps.UninstallCommand}"
-                      ToolTip="调用该软件自带的卸载程序；不会强制删除任何文件" />
+                      ToolTip="调用选中的软件自带的卸载程序（多选时按顺序逐个执行，等上一个结束再启动下一个）；不会强制删除任何文件" />
             </Grid>
           </Border>
         </Grid>

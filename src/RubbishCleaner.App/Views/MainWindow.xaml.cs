@@ -83,6 +83,18 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// 多选同步（v0.9.3）：<c>ListBox.SelectedItems</c> 不是依赖属性、无法直接绑定，
+    /// 所以在 SelectionChanged 里把选中项转交给视图模型；批量卸载靠它拿到完整列表。
+    /// </summary>
+    private void OnAppSelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (sender is System.Windows.Controls.ListBox list)
+        {
+            _viewModel.Apps.SetSelection(list.SelectedItems.OfType<AppItemViewModel>());
+        }
+    }
+
     /// <summary>双击软件条目 = 直接卸载（与"卸载选中的软件"按钮等价，但仍会二次确认）。</summary>
     private void OnAppListDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {

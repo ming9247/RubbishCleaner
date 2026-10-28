@@ -70,8 +70,13 @@ public sealed class AppItemViewModel(InstalledApp app)
 /// </summary>
 public sealed class AppsViewModel : ObservableObject
 {
-    private readonly InstalledAppEnumerator _enumerator = new();
     private readonly UninstallExecutor _executor = new();
+
+    /// <summary>枚举已安装软件（可注入：测试不读真实注册表）。</summary>
+    private readonly Func<InstalledAppsResult> _enumerate;
+
+    /// <summary>执行卸载命令（可注入：测试绝不真启动卸载程序）。</summary>
+    private readonly Func<string?, UninstallOutcome> _execute;
 
     /// <summary>
     /// "卸载 ↔ 残留扫描"的协调者（v0.3.1）。
@@ -105,7 +110,20 @@ public sealed class AppsViewModel : ObservableObject
     private AppItemViewModel? _selected;
 
     public AppsViewModel()
+        : this(() => new InstalledAppEnumerator().Enumerate(), null)
     {
+    }
+
+    /// <summary>
+    /// 测试专用构造：枚举与执行都可注入。生产路径请用无参构造。
+    /// </summary>
+    internal AppsViewModel(
+        Func<InstalledAppsResult> enumerate,
+        Func<string?, UninstallOutcome>? execute = null)
+    {
+        _enumerate = enumerate;
+        _execute = execute ?? (command => _executor.Execute(command));
+
         RefreshCommand = new AsyncRelayCommand(RefreshAsync, () => !IsLoading)
         {
             OnError = ex =>
@@ -116,7 +134,9 @@ public sealed class AppsViewModel : ObservableObject
             },
         };
 
-        UninstallCommand = new AsyncRelayCommand(UninstallSelectedAsync, () => Selected is { CanUninstall: true } && !IsLoading)
+        UninstallCommand = new AsyncRelayCommand(
+            UninstallSelectedAsync,
+            () => !IsLoading && EffectiveTargets().Any(i => i.App.CanUninstall))
         {
             OnError = ex =>
             {
@@ -193,6 +213,42 @@ public sealed class AppsViewModel : ObservableObject
         }
     }
 
+    /// <summary>多选集合（v0.9.3）。由视图层在 SelectionChanged 时通过 <see cref="SetSelection"/> 写入。</summary>
+    private readonly List<AppItemViewModel> _selectedApps = [];
+
+    /// <summary>当前选中的软件（可能为空；多选时为多个）。</summary>
+    public IReadOnlyList<AppItemViewModel> SelectedApps => _selectedApps;
+
+    /// <summary>是否有选中项。</summary>
+    public bool HasSelection => _selectedApps.Count > 0;
+
+    /// <summary>
+    /// 卸载按钮文案：单选保持原标题，多选显示个数，让用户点之前就知道会卸几个。
+    /// </summary>
+    public string UninstallButtonText => _selectedApps.Count > 1
+        ? $"卸载选中的 {_selectedApps.Count} 个软件"
+        : "卸载选中的软件";
+
+    /// <summary>
+    /// 同步 ListBox 的选中项。WPF 的 <c>ListBox.SelectedItems</c> 不是依赖属性、无法直接绑定，
+    /// 所以在 code-behind 的 SelectionChanged 里转交过来。
+    /// </summary>
+    public void SetSelection(IEnumerable<AppItemViewModel> items)
+    {
+        _selectedApps.Clear();
+        _selectedApps.AddRange(items.Where(static i => i is not null));
+        OnPropertyChanged(nameof(SelectedApps));
+        OnPropertyChanged(nameof(HasSelection));
+        OnPropertyChanged(nameof(UninstallButtonText));
+        CommandManager.InvalidateRequerySuggested();
+    }
+
+    /// <summary>实际要处理的条目：优先多选集合；没有多选时回落到 <see cref="Selected"/>（双击路径）。</summary>
+    private List<AppItemViewModel> EffectiveTargets()
+        => _selectedApps.Count > 0
+            ? [.. _selectedApps]
+            : Selected is null ? [] : [Selected];
+
     public AppItemViewModel? Selected
     {
         get => _selected;
@@ -214,7 +270,7 @@ public sealed class AppsViewModel : ObservableObject
 
         try
         {
-            var result = await Task.Run(() => _enumerator.Enumerate()).ConfigureAwait(true);
+            var result = await Task.Run(() => _enumerate()).ConfigureAwait(true);
 
             Apps.Clear();
             foreach (var app in result.Apps)
@@ -249,88 +305,201 @@ public sealed class AppsViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 卸载选中的软件。
+    /// 卸载选中的软件（支持多选，v0.9.3）。
     ///
-    /// <b>不代劳的部分</b>：卸载程序本身由软件的安装器负责，
-    /// 我们只负责"确认 → 启动 → 等待 → 提示结果"，不做任何强制删除。
+    /// <para><b>顺序执行，不并发</b>：卸载程序多半带界面且会弹 UAC，同时启动多个会互相打架。
+    /// 所以严格「启动 → 等它结束 → 再启动下一个」，并且每步都在状态栏标出第几个。</para>
+    ///
+    /// <para><b>单个坏条目不能拖垮整批</b>：没有卸载命令、预检查不通过的条目不执行，
+    /// 但在确认框与最终汇总里都会点名说明，其余软件照常卸载。</para>
+    ///
+    /// <para><b>不代劳的部分</b>：卸载程序本身由软件的安装器负责，
+    /// 我们只负责"确认 → 启动 → 等待 → 提示结果"，不做任何强制删除。</para>
     /// </summary>
-    private async Task UninstallSelectedAsync()
+    internal async Task UninstallSelectedAsync()
     {
-        var item = Selected;
-        if (item is null || !item.App.CanUninstall)
+        var targets = EffectiveTargets();
+        if (targets.Count == 0)
         {
             return;
         }
 
-        // 预检查：不通过就明确拒绝，并把手动处置办法告诉用户
-        var precheck = item.Precheck;
-        if (!precheck.CanProceed)
+        // 1) 先分拣：不能卸 / 预检查不通过的跳过，但把原因带到确认框与汇总里。
+        var runnable = new List<AppItemViewModel>();
+        var skipped = new List<string>();
+        foreach (var item in targets)
         {
-            Log.Warn($"拒绝卸载 {item.DisplayName}：{precheck.BlockReason}");
-            StatusText = $"无法卸载「{item.DisplayName}」";
-            NotifyHandler("无法卸载", precheck.BlockReason ?? "未通过卸载前检查");
-            return;
-        }
-
-        // 有进程在跑就提醒：卸载程序遇到占用通常会失败或留残留
-        if (precheck.Warnings is { Count: > 0 })
-        {
-            var proceed = ConfirmHandler("卸载前请注意",
-                $"「{item.DisplayName}」存在以下情况：\n\n"
-                + string.Join('\n', precheck.Warnings.Select(w => "· " + w))
-                + "\n\n仍要继续吗？");
-            if (!proceed)
+            if (!item.App.CanUninstall)
             {
-                StatusText = "已取消卸载";
-                return;
+                skipped.Add($"{item.DisplayName}：没有可用的卸载命令");
+                continue;
             }
+
+            var precheck = item.Precheck;
+            if (!precheck.CanProceed)
+            {
+                Log.Warn($"跳过卸载 {item.DisplayName}：{precheck.BlockReason}");
+                skipped.Add($"{item.DisplayName}：{precheck.BlockReason}");
+                continue;
+            }
+
+            runnable.Add(item);
         }
 
-        var message =
-            $"即将启动「{item.DisplayName}」的卸载程序：\n\n{item.UninstallCommandText}\n\n" +
-            "接下来会由该软件自己的卸载程序接管，请按它的提示完成卸载。\n" +
-            "本工具不会替你强制删除任何文件。";
+        if (runnable.Count == 0)
+        {
+            StatusText = "没有可以卸载的软件";
+            NotifyHandler("无法卸载", string.Join(Environment.NewLine, skipped));
+            return;
+        }
 
-        // 卸载不可逆，必须二次确认，且把实际会执行的命令摆出来
-        if (!ConfirmHandler("确认卸载", message))
+        // 2) 只确认一次：把这一批真正会执行的命令全部列出来，避免"盲盒式"批量操作。
+        if (!ConfirmHandler("确认卸载", BuildConfirmMessage(runnable, skipped)))
         {
             StatusText = "已取消卸载";
             return;
         }
 
-        // 卸载前快照：记录"卸载前磁盘上有什么"，卸载后才有对比的基准。
-        // 快照失败不阻塞卸载——用户的目的是卸掉软件，不是留下快照。
-        var captured = false;
-        try
+        // 3) 逐个执行：必须等上一个卸载程序结束后再启动下一个。
+        var completed = new List<string>();
+        var failed = new List<string>();
+        for (var index = 0; index < runnable.Count; index++)
         {
-            captured = _residueCoordinator?.CaptureBefore(item.App) ?? false;
+            var item = runnable[index];
+            var progress = runnable.Count > 1 ? $"（第 {index + 1}/{runnable.Count} 个）" : string.Empty;
+
+            // 卸载前快照：记录"卸载前磁盘上有什么"，卸载后才有对比的基准。
+            // 快照失败不阻塞卸载——用户的目的是卸掉软件，不是留下快照。
+            var captured = false;
+            try
+            {
+                captured = _residueCoordinator?.CaptureBefore(item.App) ?? false;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"卸载前快照失败（不影响卸载）：{ex.Message}");
+            }
+
+            StatusText = captured
+                ? $"已记录「{item.DisplayName}」的卸载前状态{progress}，正在等待卸载程序结束…"
+                : $"正在等待「{item.DisplayName}」的卸载程序结束{progress}…";
+
+            var outcome = await Task.Run(() => _execute(item.App.UninstallCommand)).ConfigureAwait(true);
+
+            Log.Info($"卸载 {item.DisplayName}：Started={outcome.Started} Completed={outcome.Completed} Exit={outcome.ExitCode} {outcome.Message}");
+
+            if (outcome.Completed)
+            {
+                completed.Add(item.DisplayName);
+            }
+            else
+            {
+                failed.Add($"{item.DisplayName}：{outcome.Message}");
+            }
+
+            // 残留扫描放在每个软件之后：它只更新残留页的数据，不切页签，
+            // 所以批量卸载时不会打断后续的卸载进程。
+            await ReportResidueAsync(item.App).ConfigureAwait(true);
         }
-        catch (Exception ex)
-        {
-            Log.Warn($"卸载前快照失败（不影响卸载）：{ex.Message}");
-        }
 
-        if (captured)
-        {
-            StatusText = $"已记录「{item.DisplayName}」的卸载前状态，正在等待卸载程序结束…";
-        }
-
-        StatusText = $"正在等待「{item.DisplayName}」的卸载程序结束…";
-
-        var outcome = await Task.Run(() => _executor.Execute(item.App.UninstallCommand)).ConfigureAwait(true);
-
-        Log.Info($"卸载 {item.DisplayName}：Started={outcome.Started} Completed={outcome.Completed} Exit={outcome.ExitCode} {outcome.Message}");
-
-        StatusText = outcome.Completed
-            ? $"「{item.DisplayName}」卸载程序已结束"
-            : $"「{item.DisplayName}」{outcome.Message}";
-
-        NotifyHandler(outcome.Completed ? "卸载程序已结束" : "卸载未完成", outcome.Message);
-
-        // 卸载后刷新列表，让用户看到真实变化
+        // 4) 收尾：列表刷新一次（卸载后软件可能已消失），再给一条汇总。
         await RefreshAsync();
 
-        await ReportResidueAsync(item.App).ConfigureAwait(true);
+        var summary = BuildSummary(completed, failed, skipped, runnable.Count);
+        StatusText = summary;
+        NotifyHandler(runnable.Count == 1
+                ? (failed.Count == 0 ? "卸载程序已结束" : "卸载未完成")
+                : "批量卸载完成",
+            summary);
+    }
+
+    /// <summary>确认框正文：列出每个待卸载软件及其真实命令，附带警告与被跳过的条目。</summary>
+    private static string BuildConfirmMessage(
+        IReadOnlyList<AppItemViewModel> runnable, IReadOnlyList<string> skipped)
+    {
+        var builder = new System.Text.StringBuilder();
+        builder.AppendLine(runnable.Count == 1
+            ? $"即将启动「{runnable[0].DisplayName}」的卸载程序："
+            : $"即将依次启动 {runnable.Count} 个软件的卸载程序（会等上一个结束后再启动下一个）：");
+        builder.AppendLine();
+
+        foreach (var item in runnable)
+        {
+            builder.AppendLine($"· {item.DisplayName}");
+            builder.AppendLine($"  {item.UninstallCommandText}");
+        }
+
+        var withWarnings = runnable.Where(i => i.Precheck.Warnings is { Count: > 0 }).ToList();
+        if (withWarnings.Count > 0)
+        {
+            builder.AppendLine();
+            builder.AppendLine("执行前请注意：");
+            foreach (var item in withWarnings)
+            {
+                foreach (var warning in item.Precheck.Warnings!)
+                {
+                    builder.AppendLine($"· {item.DisplayName}：{warning}");
+                }
+            }
+        }
+
+        if (skipped.Count > 0)
+        {
+            builder.AppendLine();
+            builder.AppendLine("以下条目会被跳过（不影响其它软件继续卸载）：");
+            foreach (var reason in skipped)
+            {
+                builder.AppendLine("· " + reason);
+            }
+        }
+
+        builder.AppendLine();
+        builder.Append("接下来由各软件自己的卸载程序接管，请按提示完成。本工具不会替你强制删除任何文件。");
+        return builder.ToString();
+    }
+
+    /// <summary>结束汇总：成功几个、失败几个、跳过哪些（一次弹窗，不逐个打扰）。</summary>
+    private static string BuildSummary(
+        IReadOnlyList<string> completed,
+        IReadOnlyList<string> failed,
+        IReadOnlyList<string> skipped,
+        int attempted)
+    {
+        var builder = new System.Text.StringBuilder();
+        if (attempted == 1)
+        {
+            builder.Append(failed.Count == 0 ? "卸载程序已结束" : "卸载未完成");
+        }
+        else
+        {
+            builder.Append($"批量卸载结束：成功 {completed.Count} 个，失败 {failed.Count} 个");
+            if (completed.Count > 0)
+            {
+                builder.Append($"（{string.Join("、", completed)}）");
+            }
+        }
+
+        if (failed.Count > 0)
+        {
+            builder.AppendLine();
+            builder.AppendLine("失败：");
+            foreach (var item in failed)
+            {
+                builder.AppendLine("· " + item);
+            }
+        }
+
+        if (skipped.Count > 0)
+        {
+            builder.AppendLine();
+            builder.AppendLine("已跳过：");
+            foreach (var item in skipped)
+            {
+                builder.AppendLine("· " + item);
+            }
+        }
+
+        return builder.ToString().TrimEnd();
     }
 
     /// <summary>
