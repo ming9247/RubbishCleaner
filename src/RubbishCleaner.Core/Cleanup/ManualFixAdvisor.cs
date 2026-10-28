@@ -3,11 +3,30 @@ using RubbishCleaner.Core.Models;
 namespace RubbishCleaner.Core.Cleanup;
 
 /// <summary>
+/// 手动处理该打开哪个 Windows 管理界面（v0.9.4）。
+///
+/// <para>为什么只在 UI 层"打开界面"而不代劳：删服务可能牵连依赖它的其它服务，
+/// 删计划任务也可能是某个软件正常在用（我们只判定"指向的文件不存在"）。
+/// 决定权与最终那一下右键，始终留在用户手里。</para>
+/// </summary>
+public enum ManualFixTargetKind
+{
+    /// <summary>打开「服务」管理单元（services.msc）。</summary>
+    WindowsService,
+
+    /// <summary>打开「任务计划程序」（taskschd.msc）。</summary>
+    ScheduledTask,
+
+    /// <summary>在资源管理器中定位启动文件夹里的快捷方式。</summary>
+    StartupFolder,
+}
+
+/// <summary>
 /// 不可自动清理的残留项及手动处理指引。
 ///
 /// 为什么不代劳：服务与计划任务属于系统机制，
 /// 删除一个服务可能影响依赖它的其他服务，甚至导致开机异常。
-/// 这类操作交给用户手动执行，工具只负责"告诉他在哪、该敲什么命令"。
+/// 这类操作交给用户手动执行，工具只负责"告诉他在哪、该敲什么命令、该打开哪个界面"。
 /// </summary>
 public sealed record ManualFixGuide(
     string EntryName,
@@ -16,7 +35,9 @@ public sealed record ManualFixGuide(
     string Title,
     string Explanation,
     string? Command,
-    string? CommandHint);
+    string? CommandHint,
+    ManualFixTargetKind Target,
+    string? TargetPath);
 
 /// <summary>
 /// 为不可自动清理的残留项生成手动处理指引。
@@ -62,7 +83,9 @@ public static class ManualFixAdvisor
             + "且可能影响依赖它的其他服务，因此本工具不会自动处理。"
             + "建议先确认没有其他程序依赖它，再手动删除。",
             $"sc.exe delete \"{serviceName}\"",
-            hint);
+            hint,
+            ManualFixTargetKind.WindowsService,
+            serviceName);
     }
 
     private static ManualFixGuide TaskGuide(StartupEntry entry)
@@ -77,7 +100,9 @@ public static class ManualFixAdvisor
             $"schtasks.exe /Delete /TN \"{NormalizeTaskName(entry.Name)}\" /F",
             NormalizeTaskName(entry.Name) != entry.Name
                 ? $"任务名已按计划任务程序的规则补全为「{NormalizeTaskName(entry.Name)}」。"
-                : null);
+                : null,
+            ManualFixTargetKind.ScheduledTask,
+            NormalizeTaskName(entry.Name));
 
     private static ManualFixGuide ShortcutGuide(StartupEntry entry)
         => new(
@@ -88,7 +113,9 @@ public static class ManualFixAdvisor
             "启动文件夹里的这个快捷方式指向的程序已不存在。直接删除该快捷方式即可，"
             + "不需要管理员权限。",
             null,
-            $"位置：{entry.Location}");
+            $"位置：{entry.Location}",
+            ManualFixTargetKind.StartupFolder,
+            Path.Combine(entry.Location, entry.Name));
 
     /// <summary>
     /// 计划任务名在注册表/文件系统里通常不带前导反斜杠，但 <c>schtasks</c> 要求带。

@@ -185,6 +185,28 @@
                           <TextBlock Text="{Binding CommandHint}" TextWrapping="Wrap" FontSize="11"
                                      Foreground="#B45309" Margin="0,4,0,0"
                                      Visibility="{Binding HasHint, Converter={StaticResource BoolToVisibility}}" />
+
+                          <!-- v0.9.4：一键打开对应的 Windows 管理界面（服务 / 任务计划程序 / 资源管理器），
+                               并把条目名字放进剪贴板，用户只需在那边右键删除。 -->
+                          <WrapPanel Margin="0,8,0,0">
+                            <Button Content="{Binding OpenTargetText}" Padding="10,3" FontSize="12"
+                                    Command="{Binding DataContext.OpenManualFixTargetCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                    CommandParameter="{Binding}"
+                                    ToolTip="打开对应的 Windows 管理界面，并把条目名字复制到剪贴板" />
+                            <Button Content="复制名称" Padding="10,3" Margin="6,0,0,0" FontSize="12"
+                                    Command="{Binding DataContext.CopyManualFixTextCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                    CommandParameter="{Binding CopyValue}"
+                                    Visibility="{Binding HasCopyValue, Converter={StaticResource BoolToVisibility}}"
+                                    ToolTip="把服务名 / 任务名复制到剪贴板" />
+                            <Button Content="复制命令" Padding="10,3" Margin="6,0,0,0" FontSize="12"
+                                    Command="{Binding DataContext.CopyManualFixTextCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                    CommandParameter="{Binding Command}"
+                                    Visibility="{Binding HasCommand, Converter={StaticResource BoolToVisibility}}"
+                                    ToolTip="复制可直接在管理员命令行执行的命令" />
+                          </WrapPanel>
+
+                          <TextBlock Text="{Binding StepText}" TextWrapping="Wrap" FontSize="11"
+                                     Foreground="#6B7280" Margin="0,6,0,0" />
                         </StackPanel>
                       </Border>
                     </DataTemplate>

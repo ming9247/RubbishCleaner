@@ -119,6 +119,39 @@ public class ManualFixAdvisorTests
     }
 
     [Fact]
+    public void Service_TargetsServicesMscWithServiceName()
+    {
+        var entry = Entry("Winstep Xtreme Service", StartupSourceKind.WindowsService,
+            @"D:\nexus\Winstep\WsxService");
+
+        var guide = ManualFixAdvisor.For(entry);
+
+        Assert.Equal(ManualFixTargetKind.WindowsService, guide!.Target);
+        Assert.Equal("Winstep Xtreme Service", guide.TargetPath);
+    }
+
+    [Fact]
+    public void ScheduledTask_TargetsTaskSchedulerWithNormalizedName()
+    {
+        var guide = ManualFixAdvisor.For(Entry("MyTask", StartupSourceKind.ScheduledTask));
+
+        Assert.Equal(ManualFixTargetKind.ScheduledTask, guide!.Target);
+        // 任务计划程序里显示的完整名以 \ 开头，复制给用户时必须是这个形态
+        Assert.Equal(@"\MyTask", guide.TargetPath);
+    }
+
+    [Fact]
+    public void StartupFolder_TargetsTheShortcutItself()
+    {
+        var location = @"C:\Users\x\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup";
+        var guide = ManualFixAdvisor.For(Entry("SomeApp.lnk", StartupSourceKind.StartupFolderUser,
+            @"D:\Gone\app.exe", location: location));
+
+        Assert.Equal(ManualFixTargetKind.StartupFolder, guide!.Target);
+        Assert.Equal(Path.Combine(location, "SomeApp.lnk"), guide.TargetPath);
+    }
+
+    [Fact]
     public void NullEntry_Throws()
     {
         Assert.Throws<ArgumentNullException>(() => ManualFixAdvisor.For(null!));

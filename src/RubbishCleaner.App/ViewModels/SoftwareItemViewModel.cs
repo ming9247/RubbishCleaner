@@ -130,10 +130,43 @@ public sealed class SoftwareItemViewModel : ObservableObject
     }
 }
 
-/// <summary>一条"需要手动处理"的展示项（含可复制命令）。</summary>
+/// <summary>一条"需要手动处理"的展示项（含可复制命令 + 一键打开对应管理界面）。</summary>
 public sealed class ManualFixItem(ManualFixGuide guide)
 {
     public string EntryName { get; } = guide.EntryName;
+
+    /// <summary>应该打开哪个 Windows 管理界面。</summary>
+    public ManualFixTargetKind Target { get; } = guide.Target;
+
+    /// <summary>要在目标界面里定位的对象（任务名 / 服务名 / 快捷方式完整路径）。</summary>
+    public string? TargetPath { get; } = guide.TargetPath;
+
+    /// <summary>复制到剪贴板的值（任务名为规范化后的名字，服务名就是服务名）。</summary>
+    public string? CopyValue => TargetPath;
+
+    public bool HasCopyValue => !string.IsNullOrWhiteSpace(TargetPath);
+
+    /// <summary>「打开 XXX」按钮的文案。</summary>
+    public string OpenTargetText => Target switch
+    {
+        ManualFixTargetKind.WindowsService => "打开「服务」并复制服务名",
+        ManualFixTargetKind.ScheduledTask => "打开「任务计划程序」并复制任务名",
+        _ => "在文件夹中选中该快捷方式",
+    };
+
+    /// <summary>打开界面之后要做的两三步（新手照着做即可）。</summary>
+    public string StepText => Target switch
+    {
+        ManualFixTargetKind.WindowsService =>
+            "1) 在弹出的「服务」窗口里按名称排序，找到这条服务（服务名已复制到剪贴板）\n"
+            + "2) 右键 → 属性，先核对「可执行文件的路径」确实是上面那个已不存在的程序\n"
+            + "3) 确认无误后右键 → 停止；再用管理员身份运行上面那条 sc delete 命令",
+        ManualFixTargetKind.ScheduledTask =>
+            "1) 在弹出的「任务计划程序」里点左侧「任务计划程序库」，右侧列表按「名称」列排序\n"
+            + "2) 按名字找到这条任务（任务名已复制到剪贴板；也可在「操作 → 查看 → 详细信息」里核对）\n"
+            + "3) 右键 → 删除；或直接用管理员命令提示符执行上面那条 schtasks 命令",
+        _ => "资源管理器会直接选中这个快捷方式，按 Delete 删除即可（不需要管理员权限）",
+    };
 
     public string Title { get; } = guide.Title;
 

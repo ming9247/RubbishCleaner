@@ -7,6 +7,7 @@ using System.Windows.Input;
 using RubbishCleaner.App.Infrastructure;
 using RubbishCleaner.Common.Diagnostics;
 using RubbishCleaner.Common.Logging;
+using RubbishCleaner.Core.Cleanup;
 using RubbishCleaner.Core.Detection;
 using RubbishCleaner.Core.Models;
 using RubbishCleaner.Core.Trust;
@@ -75,6 +76,9 @@ public sealed class MainViewModel : ObservableObject
         RelaunchElevatedCommand = new RelayCommand(RelaunchElevated, () => !IsElevated);
         OpenLogFolderCommand = new RelayCommand(OpenLogFolder);
         OpenContainingFolderCommand = new RelayCommand(OpenContainingFolder, p => p is SoftwareItemViewModel { ExecutablePath: not null });
+        // v0.9.4：「需手动处理」一键打开对应的 Windows 管理界面 + 复制名字到剪贴板。
+        OpenManualFixTargetCommand = new RelayCommand(OpenManualFixTarget, p => p is ManualFixItem);
+        CopyManualFixTextCommand = new RelayCommand(CopyManualFixText, p => p is string s && s.Length > 0);
         ExportCsvCommand = new RelayCommand(ExportCsv, () => Profiles.Count > 0);
         ExportHtmlCommand = new RelayCommand(ExportHtml, () => Profiles.Count > 0);
         ShowAllCommand = new RelayCommand(() => ApplyFilter(null));
@@ -286,6 +290,12 @@ public sealed class MainViewModel : ObservableObject
     public ICommand OpenLogFolderCommand { get; }
 
     public ICommand OpenContainingFolderCommand { get; }
+
+    /// <summary>「需手动处理」→ 打开 services.msc / taskschd.msc / 资源管理器并选中快捷方式。</summary>
+    public ICommand OpenManualFixTargetCommand { get; }
+
+    /// <summary>复制任意文本到剪贴板（目前用于复制服务名 / 任务名 / 命令）。</summary>
+    public ICommand CopyManualFixTextCommand { get; }
 
     public ICommand ExportCsvCommand { get; }
 
@@ -730,6 +740,118 @@ public sealed class MainViewModel : ObservableObject
         }
 
         System.Windows.Application.Current.Shutdown();
+    }
+
+    // ───────── 需手动处理：打开对应管理界面（v0.9.4） ─────────
+
+    /// <summary>
+    /// 打开外部程序（管理单元 / 资源管理器）。<b>可注入</b>：测试只验证"传了什么"，不会真的弹窗。
+    /// 参数：目标（如 <c>services.msc</c>、<c>explorer.exe</c>），可选的命令行参数。
+    /// </summary>
+    public Func<string, string?, bool> OpenTargetHandler { get; set; } = DefaultOpenTarget;
+
+    /// <summary>复制文本到剪贴板。<b>可注入</b>：测试环境不能依赖真实剪贴板。</summary>
+    public Action<string> CopyTextHandler { get; set; } = DefaultCopyText;
+
+    private static bool DefaultOpenTarget(string target, string? arguments)
+    {
+        var startInfo = new System.Diagnostics.ProcessStartInfo(target) { UseShellExecute = true };
+        if (!string.IsNullOrEmpty(arguments))
+        {
+            startInfo.Arguments = arguments;
+        }
+
+        return System.Diagnostics.Process.Start(startInfo) is not null;
+    }
+
+    private static void DefaultCopyText(string text)
+    {
+        try
+        {
+            System.Windows.Clipboard.SetText(text);
+        }
+        catch (Exception ex)
+        {
+            // 剪贴板被别的程序占用时 SetText 会抛；这不影响"打开界面"这个主目的。
+            Log.Warn($"写剪贴板失败：{ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// 一键打开该条目对应的 Windows 管理界面，并把要定位的名字放进剪贴板。
+    ///
+    /// <para>为什么不做"自动删除服务/计划任务"：删服务可能牵连依赖它的其它服务，
+    /// 计划任务也可能正被某个软件正常使用（我们只判定"指向的文件不存在"）。
+    /// 工具的职责是把用户送到正确的位置、把名字和命令备好，最后那一下交给用户。</para>
+    /// </summary>
+    private void OpenManualFixTarget(object? parameter)
+    {
+        if (parameter is not ManualFixItem item)
+        {
+            return;
+        }
+
+        try
+        {
+            switch (item.Target)
+            {
+                case ManualFixTargetKind.WindowsService:
+                    OpenTargetHandler("services.msc", null);
+                    CopyTextHandler(item.CopyValue ?? item.EntryName);
+                    StatusText = $"已打开「服务」窗口，服务名「{item.CopyValue ?? item.EntryName}」已复制，按提示核对后再删除。";
+                    break;
+
+                case ManualFixTargetKind.ScheduledTask:
+                    OpenTargetHandler("taskschd.msc", null);
+                    CopyTextHandler(item.CopyValue ?? item.EntryName);
+                    StatusText = $"已打开「任务计划程序」，任务名「{item.CopyValue ?? item.EntryName}」已复制，在「任务计划程序库」里找到它再删除。";
+                    break;
+
+                default:
+                    var target = item.TargetPath;
+                    if (string.IsNullOrWhiteSpace(target))
+                    {
+                        StatusText = "找不到该快捷方式的位置。";
+                        return;
+                    }
+
+                    if (File.Exists(target))
+                    {
+                        OpenTargetHandler("explorer.exe", $"/select,\"{target}\"")  ;
+                    }
+                    else
+                    {
+                        var folder = Path.GetDirectoryName(target);
+                        if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder))
+                        {
+                            StatusText = "该快捷方式与其所在目录都不存在，可能已被删除。";
+                            return;
+                        }
+                        OpenTargetHandler("explorer.exe", $"\"{folder}\"")  ;
+                    }
+                    StatusText = $"已在资源管理器中定位「{item.EntryName}」，直接 Delete 即可（不需要管理员权限）。";
+                    break;
+            }
+
+            ErrorText = null;
+            Log.Info($"手动处理：打开 {item.OpenTargetText}（{item.EntryName}）");
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"无法打开管理界面：{ex.Message}";
+            Log.Warn($"打开管理界面失败（{item.EntryName}）：{ex.Message}");
+        }
+    }
+
+    private void CopyManualFixText(object? parameter)
+    {
+        if (parameter is not string text || text.Length == 0)
+        {
+            return;
+        }
+
+        CopyTextHandler(text);
+        StatusText = $"已复制到剪贴板：{text}";
     }
 
     private void OpenBackupFolder()
