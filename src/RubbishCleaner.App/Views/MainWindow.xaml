@@ -1303,6 +1303,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
           </Grid.RowDefinitions>
 
           <!-- 左列：联网与特征库更新 -->
@@ -1517,6 +1518,40 @@
                   </TextBlock>
                 </StackPanel>
               </Grid>
+            </StackPanel>
+          </Border>
+
+          <!-- 跨三列：关于软件（v0.9.1）——赞助只是外链，不弹窗、不在应用内支付 -->
+          <Border Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="3"
+                  Style="{StaticResource Card}" VerticalAlignment="Top" Margin="0,16,0,0">
+            <StackPanel>
+              <TextBlock Text="关于软件" Style="{StaticResource TitleText}" />
+              <TextBlock Style="{StaticResource SecondaryText}" TextWrapping="Wrap" Margin="0,6,0,0">
+                <Run Text="RubbishCleaner " /><Run Text="{Binding Settings.AppVersionText, Mode=OneWay}" />
+                <Run Text=" —— 轻量、免安装的 Windows 流氓软件检测与残留清理工具；开源协议 MIT。" />
+              </TextBlock>
+              <TextBlock Style="{StaticResource SecondaryText}" TextWrapping="Wrap" FontSize="11" Margin="0,4,0,0">
+                <Run Text="项目主页：" /><Run Text="{Binding Settings.RepositoryUrl, Mode=OneWay}" />
+              </TextBlock>
+
+              <Separator Margin="0,12,0,10" />
+
+              <TextBlock Text="赞助作者" FontWeight="SemiBold" />
+              <TextBlock Style="{StaticResource SecondaryText}" TextWrapping="Wrap" Margin="0,4,0,0"
+                         Text="工具免费、无广告、默认不联网。如果它帮你省了点时间，可以请作者喝杯咖啡。赞助完全自愿，不影响任何功能。" />
+              <WrapPanel Margin="0,10,0,0">
+                <Button Content="在爱发电赞助作者" Padding="16,5"
+                        Command="{Binding Settings.OpenSponsorCommand}"
+                        ToolTip="用系统默认浏览器打开爱发电主页：应用内不支付、不读取账号、不弹窗" />
+                <TextBlock Text="{Binding Settings.SponsorStatusText}" VerticalAlignment="Center"
+                           Margin="12,0,0,0" FontSize="12" TextWrapping="Wrap"
+                           Style="{StaticResource SecondaryText}"
+                           Visibility="{Binding Settings.SponsorStatusText, Converter={StaticResource BoolToVisibility}}" />
+              </WrapPanel>
+              <TextBlock Style="{StaticResource SecondaryText}" TextWrapping="Wrap" FontSize="11" Margin="0,8,0,0">
+                <Run Text="赞助页：" /><Run Text="{Binding Settings.SponsorUrl, Mode=OneWay}" />
+                <Run Text="（打不开时可手动复制到浏览器）" />
+              </TextBlock>
             </StackPanel>
           </Border>
         </Grid>

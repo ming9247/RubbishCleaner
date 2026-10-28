@@ -21,6 +21,8 @@ namespace RubbishCleaner.App.ViewModels;
 /// <item>备份保留数量——超过 N 个的旧备份移入回收站（永不硬删除）。</item>
 /// <item>特征库离线编辑——在应用内查看/新增/修改/删除用户层规则，并支持 JSON 导入导出
 /// （内置层与程序目录层只读，删除只作用于用户层）。</item>
+/// <item>关于软件（v0.9.1）——版本号 + 赞助作者入口。赞助只是用系统浏览器打开爱发电主页，
+/// 不在应用内支付、不弹窗、不读账号，也不统计点击。</item>
 /// </list>
 ///
 /// <para>为什么清理旧备份的按钮放在这里而不是备份历史页：备份历史页有反射测试
@@ -35,6 +37,7 @@ public sealed class SettingsViewModel : ObservableObject
     private readonly TrustTableEditor _trustEditor;
     private readonly Func<string?> _pickImportFilePath;
     private readonly Func<string, string?> _pickExportFilePath;
+    private readonly Action<string> _openUrl;
 
     private bool _enableNetworking;
     private string _keepBackupCountText = "30";
@@ -49,6 +52,7 @@ public sealed class SettingsViewModel : ObservableObject
     private string _ruleNoteText = string.Empty;
     private bool _ruleIsBlacklist;
     private string? _trustEditorStatusText;
+    private string? _sponsorStatusText;
 
     /// <param name="updaterFactory">在线更新器工厂，默认 <see cref="TrustTableUpdater"/>。</param>
     /// <param name="backupStore">备份历史存储，默认 <see cref="BackupHistoryStore"/>。</param>
@@ -56,13 +60,15 @@ public sealed class SettingsViewModel : ObservableObject
     /// <param name="trustEditor">特征库编辑器，默认写 <c>%ProgramData%\RubbishCleaner\trust-table.json</c>。</param>
     /// <param name="pickImportFilePath">选导入文件的委托；默认弹 <c>OpenFileDialog</c>，测试可注入。</param>
     /// <param name="pickExportFilePath">选导出保存路径的委托；默认弹 <c>SaveFileDialog</c>，测试可注入。</param>
+    /// <param name="openUrl">打开外部链接的委托；默认用系统浏览器（<c>UseShellExecute</c>），测试可注入。</param>
     public SettingsViewModel(
         Func<TrustTableUpdater>? updaterFactory = null,
         IBackupHistoryStore? backupStore = null,
         AppSettings? settings = null,
         TrustTableEditor? trustEditor = null,
         Func<string?>? pickImportFilePath = null,
-        Func<string, string?>? pickExportFilePath = null)
+        Func<string, string?>? pickExportFilePath = null,
+        Action<string>? openUrl = null)
     {
         _updaterFactory = updaterFactory ?? (() => new TrustTableUpdater());
         _backupStore = backupStore ?? new BackupHistoryStore();
@@ -70,6 +76,7 @@ public sealed class SettingsViewModel : ObservableObject
         _trustEditor = trustEditor ?? new TrustTableEditor();
         _pickImportFilePath = pickImportFilePath ?? DefaultPickImportFilePath;
         _pickExportFilePath = pickExportFilePath ?? DefaultPickExportFilePath;
+        _openUrl = openUrl ?? DefaultOpenUrl;
 
         _enableNetworking = _settings.EnableNetworking;
         _keepBackupCountText = _settings.KeepBackupCount.ToString();
@@ -168,6 +175,8 @@ public sealed class SettingsViewModel : ObservableObject
             },
         };
 
+        OpenSponsorCommand = new RelayCommand(OpenSponsor);
+
         ReloadTrustTable();
     }
 
@@ -243,6 +252,50 @@ public sealed class SettingsViewModel : ObservableObject
             "确认清理旧备份", System.Windows.MessageBoxButton.OKCancel,
             System.Windows.MessageBoxImage.Warning, System.Windows.MessageBoxResult.Cancel)
         == System.Windows.MessageBoxResult.OK;
+
+    // ───────── 关于软件（第五职责，v0.9.1） ─────────
+
+    /// <summary>当前应用版本（读程序集，csproj 的 &lt;Version&gt; 是唯一真源）。</summary>
+    public string AppVersionText =>
+        $"v{typeof(RubbishCleaner.App.App).Assembly.GetName().Version?.ToString(3) ?? "0.0.0"}";
+
+    /// <summary>赞助页地址（只读，供界面展示与复制）。</summary>
+    public string SponsorUrl => AppLinks.AfdianUrl;
+
+    /// <summary>项目主页地址。</summary>
+    public string RepositoryUrl => AppLinks.RepositoryUrl;
+
+    /// <summary>赞助按钮的即时反馈（不做弹窗，成功/失败都写在这一行里）。</summary>
+    public string? SponsorStatusText
+    {
+        get => _sponsorStatusText;
+        private set => SetProperty(ref _sponsorStatusText, value);
+    }
+
+    /// <summary>「赞助作者」按钮：用系统浏览器打开爱发电主页。</summary>
+    public ICommand OpenSponsorCommand { get; }
+
+    /// <summary>
+    /// 打开赞助页。只是一个 <c>UseShellExecute</c> 的外链动作——
+    /// 不弹窗、不阻塞、不读写任何本地文件，也不依赖是否启用联网。
+    /// 打开失败时把可复制的链接写进 ErrorText，用户仍能手动访问。
+    /// </summary>
+    public void OpenSponsor()
+    {
+        try
+        {
+            _openUrl(AppLinks.AfdianUrl);
+            ErrorText = null;
+            SponsorStatusText = $"已在浏览器中打开赞助页：{AppLinks.AfdianUrl}";
+            Log.Info($"已打开赞助页：{AppLinks.AfdianUrl}");
+        }
+        catch (Exception ex)
+        {
+            SponsorStatusText = null;
+            ErrorText = $"打开浏览器失败，可手动复制链接：{AppLinks.AfdianUrl}";
+            Log.Warn($"打开赞助页失败：{ex.Message}");
+        }
+    }
 
     // ───────── 特征库编辑（第四职责） ─────────
 
@@ -503,6 +556,11 @@ public sealed class SettingsViewModel : ObservableObject
         // 重复 / 非法 / 只读都是「可解释的拒绝」，用同一处错误提示展示原因。
         ErrorText = result.Message;
     }
+
+    /// <summary>默认打开方式：交给系统默认浏览器（WinExe 下不弹控制台窗口）。</summary>
+    private static void DefaultOpenUrl(string url)
+        => System.Diagnostics.Process.Start(
+            new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
 
     private static string? DefaultPickImportFilePath()
     {
