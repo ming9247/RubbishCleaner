@@ -460,6 +460,12 @@ v0.8 的特征库只能**在线拉取**——用户看到黑名单里多了一�
 - 设置页内容必须在 `ScrollViewer` 里且 `VerticalScrollBarVisibility="Auto"`；
 - 四个列表类页签**不得**被 ScrollViewer 包裹。
 
+另加一个**真实 WPF 布局探针** `tools/RubbishCleaner.UiProbe`（不在单测里跑，因为要起 WPF 布局）：
+加载真实的 App 资源与 `MainWindow`，用 WPF 自己的 `Measure/Arrange` 量坐标——
+已安装页在 700/520/420px 三种高度下列表底边都严格在底部操作条之上；
+设置页在 460px 高度时 `ScrollableHeight=605px`，滚到底后「关于软件」完整可见，窗口够高时无多余滚动。
+运行：`dotnet run --project tools/RubbishCleaner.UiProbe -c Debug`（退出码 0 = 通过，不需要管理员）。
+
 ---
 ## 项目结构
 
@@ -478,7 +484,8 @@ Rubbish-cleaner/
 ├── tools/
 │   ├── RubbishCleaner.Smoke/      # 无界面冒烟验证工具
 │   ├── RubbishCleaner.RegE2E/     # 注册表清理真机探针（e2e 全链路 / views 视图实测 / e2e32 32 位往返）
-│   └── RubbishCleaner.TrustE2E/   # 特征库在线更新真机探针（v0.8，54 项断言）
+│   ├── RubbishCleaner.TrustE2E/   # 特征库在线更新真机探针（v0.8，55 项断言）
+│   └── RubbishCleaner.UiProbe/    # 真实 WPF 布局探针（v0.9.2：量坐标，断言不重叠 / 能滚到底）
 ├── docs/
 │   ├── planning/                  # 产品文档
 │   ├── technical/                 # 技术设计文档（含 ADR）

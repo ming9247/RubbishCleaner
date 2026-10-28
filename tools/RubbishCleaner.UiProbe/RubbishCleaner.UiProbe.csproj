@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!--
+      控制台程序 + WPF：既能在命令行里看到 PASS/FAIL，又能用真实的 WPF 布局引擎测量界面。
+      OutputType=Exe（不是 WinExe）是为了保留 stdout；程序自己不会显示窗口。
+    -->
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>RubbishCleaner.UiProbe</RootNamespace>
+    <AssemblyName>RubbishCleaner.UiProbe</AssemblyName>
+    <StartupObject>RubbishCleaner.UiProbe.Program</StartupObject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\RubbishCleaner.App\RubbishCleaner.App.csproj" />
+  </ItemGroup>
+
+</Project>
