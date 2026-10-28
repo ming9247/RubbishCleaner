@@ -322,6 +322,156 @@ public class UninstallResidueScannerTests
     }
 
     [Fact]
+    public async Task ScanAsync_NoInstallLocation_StillFindsNameMatchedDataDirectory()
+    {
+        // 真机反馈：很多按用户安装的软件不写 InstallLocation，
+        // 以前这里直接 return，导致 %AppData% 下的残留永远扫不到（v0.9.6 修复）。
+        var dataRoot = Path.Combine(Path.GetTempPath(), "RcData_" + Guid.NewGuid().ToString("N")[..8]);
+        var target = Path.Combine(dataRoot, "测试软件");
+        try
+        {
+            Directory.CreateDirectory(target);
+
+            var result = await Scanner(dataRoot, target).ScanAsync(
+                Snapshot("测试软件", installLocation: null),
+                Options(extraRoots: [dataRoot]));
+
+            var item = Assert.Single(result.Directories);
+            Assert.Equal(target, item.DirectoryPath, ignoreCase: true);
+            Assert.True(result.HasResidue);
+        }
+        finally
+        {
+            if (Directory.Exists(dataRoot))
+            {
+                Directory.Delete(dataRoot, true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ScanAsync_NestedVendorDirectory_IsFound()
+    {
+        // %LocalAppData%\Programs\<App>、%AppData%\<Vendor>\<App> 这类两层形态
+        var localAppDataLike = Path.Combine(
+            Path.GetTempPath(), "RcData_" + Guid.NewGuid().ToString("N")[..8], "AppData", "Local");
+        var vendor = Path.Combine(localAppDataLike, "SomeVendor");
+        var target = Path.Combine(vendor, "测试软件");
+        try
+        {
+            Directory.CreateDirectory(target);
+
+            var result = await Scanner(localAppDataLike, vendor, target).ScanAsync(
+                Snapshot("测试软件", installLocation: null),
+                Options(extraRoots: [localAppDataLike]));
+
+            var item = Assert.Single(result.Directories);
+            Assert.Equal(target, item.DirectoryPath, ignoreCase: true);
+            Assert.Contains(item.Evidence, e => e.Contains("厂商子目录"));
+        }
+        finally
+        {
+            var top = Path.GetDirectoryName(Path.GetDirectoryName(localAppDataLike));
+            if (top is not null && Directory.Exists(top))
+            {
+                Directory.Delete(top, true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ScanAsync_MaxDepthOne_DoesNotLookIntoNestedDirectories()
+    {
+        var localAppDataLike = Path.Combine(
+            Path.GetTempPath(), "RcData_" + Guid.NewGuid().ToString("N")[..8], "AppData", "Local");
+        var target = Path.Combine(localAppDataLike, "SomeVendor", "测试软件");
+        try
+        {
+            Directory.CreateDirectory(target);
+
+            var options = new UninstallResidueOptions
+            {
+                ExtraRoots = [localAppDataLike],
+                SettleDelaySeconds = 0,
+                MaxDepth = 1,
+            };
+
+            var result = await Scanner(localAppDataLike).ScanAsync(
+                Snapshot("测试软件", installLocation: null),
+                options);
+
+            Assert.Empty(result.Directories);
+        }
+        finally
+        {
+            var top = Path.GetDirectoryName(Path.GetDirectoryName(localAppDataLike));
+            if (top is not null && Directory.Exists(top))
+            {
+                Directory.Delete(top, true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ScanAsync_MatchedOuterDirectory_DoesNotReportItsInnerDirectoryAgain()
+    {
+        var dataRoot = Path.Combine(Path.GetTempPath(), "RcData_" + Guid.NewGuid().ToString("N")[..8]);
+        var outer = Path.Combine(dataRoot, "测试软件");
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(outer, "测试软件"));
+
+            var result = await Scanner(dataRoot, outer).ScanAsync(
+                Snapshot("测试软件", installLocation: null),
+                Options(extraRoots: [dataRoot]));
+
+            // 外层命中就够了；再报一条 "测试软件\测试软件" 只会让用户多勾一个嵌套目录
+            var item = Assert.Single(result.Directories);
+            Assert.Equal(outer, item.DirectoryPath, ignoreCase: true);
+        }
+        finally
+        {
+            if (Directory.Exists(dataRoot))
+            {
+                Directory.Delete(dataRoot, true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ScanAsync_DirectoryClaimedByInstalledApp_IsNotReported()
+    {
+        // 用户把软件又装回去了（或另一个产品共用这个目录）：不能报成残留。
+        var dataRoot = Path.Combine(Path.GetTempPath(), "RcData_" + Guid.NewGuid().ToString("N")[..8]);
+        var target = Path.Combine(dataRoot, "测试软件");
+        try
+        {
+            Directory.CreateDirectory(target);
+
+            var claimed = new InstalledApp
+            {
+                Id = "x",
+                DisplayName = "测试软件",
+                RegistryPath = @"HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\x",
+                InstallLocation = target,
+            };
+
+            var result = await Scanner(dataRoot, target).ScanAsync(
+                Snapshot("测试软件", installLocation: null),
+                Options(extraRoots: [dataRoot], apps: [claimed]));
+
+            Assert.Empty(result.Directories);
+        }
+        finally
+        {
+            if (Directory.Exists(dataRoot))
+            {
+                Directory.Delete(dataRoot, true);
+            }
+        }
+    }
+
+    [Fact]
     public async Task ScanAsync_Cancellation_Throws()
     {
         using var cts = new CancellationTokenSource();

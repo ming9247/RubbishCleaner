@@ -30,6 +30,9 @@ public class OrphanCleanerTests
 
         public bool KeySurvivesDelete { get; set; }
 
+        /// <summary>模拟"备份失败"（例如磁盘不可写），用于验证闸门 6。</summary>
+        public bool BackupFails { get; set; }
+
         public OrphanCleaner Build() => new(
             BackupDir,
             code => States.TryGetValue(code, out var s) ? s : 5u,
@@ -47,7 +50,22 @@ public class OrphanCleanerTests
                     ExistingKeys.Remove(path);
                 }
             },
-            (hive, view, path) => ExistingKeys.Contains(path));
+            (hive, view, path) => ExistingKeys.Contains(path),
+            // 假备份器：不碰真实注册表，只按开关返回"成功/失败"。
+            (RegistryHive hive, RegistryView view, string subKeyPath, string directory, out string? error) =>
+            {
+                if (BackupFails)
+                {
+                    error = "模拟备份失败";
+                    return null;
+                }
+
+                error = null;
+                Directory.CreateDirectory(directory);
+                var file = Path.Combine(directory, $"orphan-fake-{Guid.NewGuid():N}.reg");
+                File.WriteAllText(file, "Windows Registry Editor Version 5.00");
+                return file;
+            });
 
         public void Cleanup()
         {
@@ -247,7 +265,7 @@ public class OrphanCleanerTests
         using var scope = new Scope(h);
 
         // 用一个非法目录让备份失败
-        h.BackupDir = @"Z:\\NoSuchDrive\\backups";
+        h.BackupFails = true;   // v0.9.6：用开关模拟备份失败，不依赖真实磁盘
 
         var cleaner = h.Build();
         var plan = cleaner.BuildPlan([Entry()]);

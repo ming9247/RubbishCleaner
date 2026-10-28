@@ -42,11 +42,11 @@ public sealed class UninstallResidueCoordinator : IUninstallResidueCoordinator
     {
         try
         {
-            var snapshot = UninstallSnapshotStore.TakeSnapshot(app);
-            if (snapshot is null)
-            {
-                return false;
-            }
+            // 没有 InstallLocation 的软件（很多按用户安装的软件就是）也要留一份快照：
+            // 拿不到文件清单，但"软件名"这个已知事实足够做「按名字找 %AppData% 同名目录」，
+            // 否则 AppData 里的残留永远不会被扫到（v0.9.6 真机反馈）。
+            var snapshot = UninstallSnapshotStore.TakeSnapshot(app)
+                           ?? UninstallSnapshotStore.TakeNameOnlySnapshot(app);
 
             var path = UninstallSnapshotStore.Save(snapshot, _snapshotDirectory);
 

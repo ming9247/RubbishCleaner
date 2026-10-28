@@ -2,6 +2,16 @@
 
 namespace RubbishCleaner.Core.RegistryCleanup;
 
+/// <summary>
+/// 备份一个注册表键：成功返回备份文件路径，失败返回 null 并通过 <paramref name="error"/> 说明原因。
+///
+/// <para>抽成委托是为了让清理器的测试可以<b>完全不碰真实注册表</b>（v0.9.6）。
+/// 之前测试注入的只是"键是否存在"，备份仍然走真实读写，于是四条 Execute 测试
+/// 悄悄依赖了本机恰好装着的某个产品——用户把那个产品卸载后，测试就红了。</para>
+/// </summary>
+public delegate string? RegistryBackupWriter(
+    RegistryHive hive, RegistryView view, string subKeyPath, string directory, out string? error);
+
 /// <summary>一条待清理的注册表孤儿条目。</summary>
 public sealed record OrphanCleanupTarget(
     string ProductCode,
@@ -62,6 +72,7 @@ public sealed class OrphanCleaner
     private readonly Func<HashSet<string>> _enumeration;
     private readonly Action<RegistryHive, RegistryView, string> _deleteKey;
     private readonly Func<RegistryHive, RegistryView, string, bool> _keyExists;
+    private readonly RegistryBackupWriter _writeBackup;
 
     /// <summary>注入依赖，便于单测（不真删注册表）。</summary>
     public OrphanCleaner(
@@ -69,13 +80,15 @@ public sealed class OrphanCleaner
         Func<string, uint>? stateQuery = null,
         Func<HashSet<string>>? enumeration = null,
         Action<RegistryHive, RegistryView, string>? deleteKey = null,
-        Func<RegistryHive, RegistryView, string, bool>? keyExists = null)
+        Func<RegistryHive, RegistryView, string, bool>? keyExists = null,
+        RegistryBackupWriter? backupWriter = null)
     {
         _backupDirectory = backupDirectory ?? DefaultBackupDirectory;
         _stateQuery = stateQuery ?? MsiInterop.QueryProductState;
         _enumeration = enumeration ?? MsiInterop.EnumerateProducts;
         _deleteKey = deleteKey ?? DeleteKeyCore;
         _keyExists = keyExists ?? KeyExistsCore;
+        _writeBackup = backupWriter ?? WriteBackupCore;
     }
 
     /// <summary>默认备份目录：<c>%LocalAppData%\RubbishCleaner\registry-backups\</c>。</summary>
@@ -207,7 +220,7 @@ public sealed class OrphanCleaner
             }
 
             // 闸门 6：备份。备份失败绝不删。
-            var backup = RegistryKeyBackupWriter.Write(
+            var backup = _writeBackup(
                 target.Hive,
                 target.View,
                 subKeyPath,
@@ -263,6 +276,11 @@ public sealed class OrphanCleaner
         var root = (uninstallRootPath ?? string.Empty).TrimEnd('\\');
         return string.IsNullOrWhiteSpace(productCode) ? root : $@"{root}\{productCode}";
     }
+
+    /// <summary>默认备份实现：导出为 .reg（UTF-16LE + BOM）。签名与 <see cref="RegistryBackupWriter"/> 一致。</summary>
+    private static string? WriteBackupCore(
+        RegistryHive hive, RegistryView view, string subKeyPath, string directory, out string? error)
+        => RegistryKeyBackupWriter.Write(hive, view, subKeyPath, directory, out error);
 
     private static bool KeyExistsCore(RegistryHive hive, RegistryView view, string subKeyPath)
     {

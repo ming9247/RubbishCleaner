@@ -98,6 +98,19 @@ public class UninstallSnapshotStoreTests
     }
 
     [Fact]
+    public void TakeNameOnlySnapshot_KeepsNameAndHasNoEntries()
+    {
+        // 没有 InstallLocation 的软件也要留下"名字"这个已知事实，
+        // 否则卸载后连"按名字找 %AppData% 同名目录"都做不了（v0.9.6）。
+        var snapshot = UninstallSnapshotStore.TakeNameOnlySnapshot(App("无路径软件", null));
+
+        Assert.Equal("无路径软件", snapshot.SoftwareName);
+        Assert.Null(snapshot.InstallLocation);
+        Assert.Empty(snapshot.Entries);
+        Assert.Equal(0, snapshot.FileCount);
+    }
+
+    [Fact]
     public void Save_ThenLoad_RoundTripsExactly()
     {
         var root = TempDir();

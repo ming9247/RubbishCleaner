@@ -83,4 +83,21 @@ public sealed record UninstallResidueOptions
     /// 立即扫会把"正在被删除的文件"当成残留报出来，所以需要等一下。
     /// </summary>
     public int SettleDelaySeconds { get; init; } = 2;
+
+    /// <summary>
+    /// 按名字找数据目录时最多往下几层（v0.9.6）。
+    ///
+    /// <para>1 = 只看根目录的直接子目录（v0.9.5 及更早的行为）。
+    /// 2 = 在 <c>%LocalAppData%</c> / <c>%AppData%</c> / <c>%LocalAppData%\LocalLow</c> / <c>%ProgramData%</c>
+    /// 这类"厂商 + 产品"两层的根上多看一层，才能命中 <c>%LocalAppData%\Programs\&lt;App&gt;</c>、
+    /// <c>%AppData%\&lt;Vendor&gt;\&lt;App&gt;</c> 这些很常见的形态。</para>
+    /// </summary>
+    public int MaxDepth { get; init; } = 2;
+
+    /// <summary>
+    /// 每个根目录最多枚举多少个子目录（v0.9.6）。
+    ///
+    /// 防止在 <c>%LocalAppData%</c> 这种几百上千个子目录的根上失控——宁可少报，不能让卸载后扫描卡住。
+    /// </summary>
+    public int MaxDirectoriesPerRoot { get; init; } = 4000;
 }

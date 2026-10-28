@@ -102,6 +102,29 @@ public static class UninstallSnapshotStore
     }
 
     /// <summary>
+    /// 采集一份"只有名字、没有文件清单"的快照（v0.9.6）。
+    ///
+    /// <para><b>为什么需要它</b>：很多按用户安装的软件（尤其是 Electron/Squirrel 那类）根本不在注册表里写
+    /// <c>InstallLocation</c>，`TakeSnapshot` 会返回 null，于是整条"卸载后定向扫描"被跳过——
+    /// 而它们的残留恰恰就在 <c>%LocalAppData%</c> 下。真机反馈「AppData 里的残留没被扫到」就是这条链路断的。</para>
+    ///
+    /// <para>没有安装目录时做不了第 1、2 步（文件级对比），但第 3 步「按软件名找同名目录」不需要
+    /// 安装目录，只需要<b>软件名</b>这个已知事实。所以这里仍然返回一份可用的快照。</para>
+    /// </summary>
+    public static UninstallSnapshot TakeNameOnlySnapshot(InstalledApp app)
+    {
+        ArgumentNullException.ThrowIfNull(app);
+
+        return new UninstallSnapshot(
+            SoftwareName: string.IsNullOrWhiteSpace(app.DisplayName) ? "(未知软件)" : app.DisplayName,
+            InstallLocation: null,
+            TakenAt: DateTimeOffset.Now,
+            Entries: [],
+            UninstallCommand: app.UninstallCommand,
+            Publisher: app.Publisher);
+    }
+
+    /// <summary>
     /// 递归采集目录内容，记录<b>相对于安装目录</b>的路径。
     ///
     /// 用相对路径而不是绝对路径，是为了让快照在"软件被装到另一个盘/另一台机器"时
